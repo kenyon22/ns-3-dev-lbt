@@ -16,7 +16,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * Author: Gary Pei <guangyu.pei@boeing.com>
- * 
+ *
  * Updated by Tom Henderson and Rohan Patidar
  */
 
@@ -49,8 +49,8 @@ class Experiment
 public:
   Experiment ();
   int Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
-                        const WifiMacHelper &wifiMac, const YansWifiChannelHelper &wifiChannel,
-                        uint32_t pktSize, uint32_t netSize, double delta, uint32_t gridWidth, double duration, double &val_needed);
+           const WifiMacHelper &wifiMac, const YansWifiChannelHelper &wifiChannel,
+           uint32_t pktSize, uint32_t netSize, double delta, uint32_t gridWidth, double duration, double &val_needed);
 private:
   void ReceivePacket (Ptr<Socket> socket);
   void SetPosition (Ptr<Node> node, Vector position);
@@ -61,7 +61,8 @@ private:
 };
 
 Experiment::Experiment ()
-{}
+{
+}
 
 void
 Experiment::SetPosition (Ptr<Node> node, Vector position)
@@ -85,7 +86,7 @@ Experiment::SetupPacketReceive (Ptr<Node> node)
 {
   TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
   Ptr<Socket> sink = Socket::CreateSocket (node, tid);
-  sink->Bind (InetSocketAddress(Ipv4Address ("0.0.0.0"),80));
+  sink->Bind (InetSocketAddress (Ipv4Address ("0.0.0.0"),80));
   sink->SetRecvCallback (MakeCallback (&Experiment::ReceivePacket, this));
 
   return sink;
@@ -110,12 +111,12 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
 
   MobilityHelper mobility;
   mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
-    "MinX", DoubleValue (0.0),
-    "MinY", DoubleValue (0.0),
-    "DeltaX", DoubleValue (delta),
-    "DeltaY", DoubleValue (delta),
-    "GridWidth", UintegerValue (gridWidth),
-    "LayoutType", StringValue ("RowFirst"));
+                                 "MinX", DoubleValue (0.0),
+                                 "MinY", DoubleValue (0.0),
+                                 "DeltaX", DoubleValue (delta),
+                                 "DeltaY", DoubleValue (delta),
+                                 "GridWidth", UintegerValue (gridWidth),
+                                 "LayoutType", StringValue ("RowFirst"));
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.Install (c);
 
@@ -136,54 +137,54 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
   //phy.EnablePcapAll("myfirst");
   for (uint32_t i = 0; i < nNodes; ++i)
     {
-       recvSinks.push_back(SetupPacketReceive (c.Get (i)));
+      recvSinks.push_back (SetupPacketReceive (c.Get (i)));
 
-       uint32_t j = (i+1) % nNodes;
-       uint32_t interface = 
-                c.Get (j)->GetObject<Ipv4> ()->GetInterfaceForDevice(c.Get (j)->GetDevice(0));
-       InetSocketAddress remote =
-        InetSocketAddress (c.Get (j)->GetObject<Ipv4> ()->GetAddress(interface,0).GetLocal(), 80);
+      uint32_t j = (i + 1) % nNodes;
+      uint32_t interface =
+        c.Get (j)->GetObject<Ipv4> ()->GetInterfaceForDevice (c.Get (j)->GetDevice (0));
+      InetSocketAddress remote =
+        InetSocketAddress (c.Get (j)->GetObject<Ipv4> ()->GetAddress (interface,0).GetLocal (), 80);
 
-       OnOffHelper onoff ("ns3::UdpSocketFactory", Address (remote));
-       onoff.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=250]"));
+      OnOffHelper onoff ("ns3::UdpSocketFactory", Address (remote));
+      onoff.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=250]"));
 
-       onoff.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
-       onoff.SetAttribute ("DataRate", DataRateValue (DataRate (60000000)));
-       onoff.SetAttribute ("PacketSize", UintegerValue (pktSize));
+      onoff.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
+      onoff.SetAttribute ("DataRate", DataRateValue (DataRate (60000000)));
+      onoff.SetAttribute ("PacketSize", UintegerValue (pktSize));
 
-       ApplicationContainer app = onoff.Install (c.Get (i));
-       app.Start(Seconds (0.5) + 
-                 NanoSeconds(startTime->GetInteger ()));
-       app.Stop (Seconds (duration + 0.5));
+      ApplicationContainer app = onoff.Install (c.Get (i));
+      app.Start (Seconds (0.5) +
+                 NanoSeconds (startTime->GetInteger ()));
+      app.Stop (Seconds (duration + 0.5));
 
-       apps.Add (app);
-    } 
+      apps.Add (app);
+    }
 
   // Trace CW evolution
   Config::ConnectWithoutContext ("/NodeList/0/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/DcaTxop/DcfCwTrace", MakeCallback (&CwTrace));
-  
+
   FlowMonitorHelper flowmon;
-	Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
+  Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
   Simulator::Stop (Seconds (duration + 0.5));
 
   Simulator::Run ();
-  double totalbytes=0;
-  
+  double totalbytes = 0;
+
   monitor->CheckForLostPackets ();
   Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
   std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
     {
-	  //Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+      //Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
       // std::cout << "Flow " << i->first  << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
-          std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-          std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-      	  //std::cout << i->second.rxBytes * 8.0 / (i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds())/1000/1000  << "\n";
-          totalbytes+=  i->second.rxBytes;
-     }
-  
+      std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
+      std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
+      //std::cout << i->second.rxBytes * 8.0 / (i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds())/1000/1000  << "\n";
+      totalbytes +=  i->second.rxBytes;
+    }
+
   Simulator::Destroy ();
-  thput = ((totalbytes * 8.0) / (1000*1000* duration)); // Mb/s
+  thput = ((totalbytes * 8.0) / (1000 * 1000 * duration)); // Mb/s
   return 0;
 }
 
@@ -196,11 +197,11 @@ int main (int argc, char *argv[])
   double delta = 0.001;
   uint32_t rmax = 20;
   uint32_t gridWidth = 10;
-  
+
   // disable fragmentation
   Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("22000"));
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("22000"));
-  Config::SetDefault ("ns3::WifiRemoteStationManager::MaxSlrc", UintegerValue(1000)); 	 
+  Config::SetDefault ("ns3::WifiRemoteStationManager::MaxSlrc", UintegerValue (1000));
   cwTraceFile.open ("wifi-a-cw-trace.out");
 
   // Align with OFDM standard values
@@ -220,20 +221,20 @@ int main (int argc, char *argv[])
   if (verbose == 1)
     {
       LogComponentEnable ("WifiBianchiValidation", LOG_LEVEL_ALL);
-    }   
+    }
   else if (verbose == 2)
     {
-      
+
       LogComponentEnable ("WifiBianchiValidation", LOG_LEVEL_ALL);
       LogComponentEnable ("DcfManager", LOG_LEVEL_ALL);
     }
 
   std::stringstream ss;
-  ss << "wifi-a-"<<netSize<<"-p-"<<pktSize<<"-throughput.plt";
-  std::ofstream netSizeThroughputPlot (ss.str().c_str());
-  ss.str("");
-  ss << "wifi-a-"<<netSize<<"-p-"<<pktSize<<"-throughput.eps";
-  Gnuplot gnuplot = Gnuplot (ss.str());
+  ss << "wifi-a-" << netSize << "-p-" << pktSize << "-throughput.plt";
+  std::ofstream netSizeThroughputPlot (ss.str ().c_str ());
+  ss.str ("");
+  ss << "wifi-a-" << netSize << "-p-" << pktSize << "-throughput.eps";
+  Gnuplot gnuplot = Gnuplot (ss.str ());
 
 
   WifiHelper wifi;
@@ -246,46 +247,48 @@ int main (int argc, char *argv[])
   wifiChannel.AddPropagationLoss ("ns3::LogDistancePropagationLossModel");
 
   NS_LOG_DEBUG ("6");
-    Experiment experiment;  
-    wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
-                                  "DataMode", StringValue ("OfdmRate6Mbps"));
-  
-  
+  Experiment experiment;
+  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+                                "DataMode", StringValue ("OfdmRate6Mbps"));
+
+
   Gnuplot2dDataset dataset;
   Gnuplot2dDataset dataset_bianchi;
   dataset.SetErrorBars (Gnuplot2dDataset::Y);
   dataset.SetStyle (Gnuplot2dDataset::LINES_POINTS);
   dataset_bianchi.SetStyle (Gnuplot2dDataset::LINES_POINTS);
-  
+
   double mean_t,thput,stDev,thput_vector[rmax];
-  
-  
-      for (uint32_t n = 5; n <= netSize; n += 5)
-      {
-        
-        mean_t=0;
-        thput=0;
-        
-        for (uint32_t run_index = 1; run_index <= rmax; run_index++)
-          {
-            std::cout << "Running 6 Mb/s experiment for " << n << " nodes " << std::endl;
-            cwTraceFile << "# 6 Mb/s rate; " << n << " nodes" << std::endl;
-            experiment.Run (wifi, wifiPhy, wifiMac, wifiChannel, pktSize, n, delta, gridWidth, duration, thput);
-            mean_t += thput;
-            thput_vector[run_index-1]=thput;
-          }
-          
-        mean_t=mean_t/rmax;
-        stDev = 0;
-        for(uint32_t i = 0; i < rmax; ++i)
-          stDev += pow(thput_vector[i] - mean_t, 2);
-          
-        stDev = sqrt(stDev/ (rmax-1));
-        dataset.Add(n, mean_t, stDev);
-        
-        std::cout << mean_t;
-      }
-  
+
+
+  for (uint32_t n = 5; n <= netSize; n += 5)
+    {
+
+      mean_t = 0;
+      thput = 0;
+
+      for (uint32_t run_index = 1; run_index <= rmax; run_index++)
+        {
+          std::cout << "Running 6 Mb/s experiment for " << n << " nodes " << std::endl;
+          cwTraceFile << "# 6 Mb/s rate; " << n << " nodes" << std::endl;
+          experiment.Run (wifi, wifiPhy, wifiMac, wifiChannel, pktSize, n, delta, gridWidth, duration, thput);
+          mean_t += thput;
+          thput_vector[run_index - 1] = thput;
+        }
+
+      mean_t = mean_t / rmax;
+      stDev = 0;
+      for (uint32_t i = 0; i < rmax; ++i)
+        {
+          stDev += pow (thput_vector[i] - mean_t, 2);
+        }
+
+      stDev = sqrt (stDev / (rmax - 1));
+      dataset.Add (n, mean_t, stDev);
+
+      std::cout << mean_t;
+    }
+
   dataset_bianchi.Add (5, 4.7033);
   dataset_bianchi.Add (10,4.3185);
   dataset_bianchi.Add (15,4.1012);
@@ -296,13 +299,13 @@ int main (int argc, char *argv[])
   dataset_bianchi.Add (40,3.5718);
   dataset_bianchi.Add (45,3.5055);
   dataset_bianchi.Add (50,3.4454);
-            
+
   gnuplot.AddDataset (dataset);
   gnuplot.SetTerminal ("postscript eps color enh \"Times-BoldItalic\"");
   gnuplot.SetLegend ("Number of competing stations", "Throughput (Mbps)");
-  ss.str("");
-  ss << "Frame size "<< pktSize << " bytes";
-  gnuplot.SetTitle  (ss.str());
+  ss.str ("");
+  ss << "Frame size " << pktSize << " bytes";
+  gnuplot.SetTitle  (ss.str ());
   gnuplot.SetExtra  ("#set xrange [0:50]\n\
 #set yrange [0:54]\n\
 set grid xtics ytics\n\
