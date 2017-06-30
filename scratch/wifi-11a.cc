@@ -33,6 +33,7 @@
 #include <iostream>
 #include <sstream>
 
+NS_LOG_COMPONENT_DEFINE ("WifiBianchi11aValidation");
 
 using namespace ns3;
 
