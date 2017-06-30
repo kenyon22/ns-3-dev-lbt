@@ -21,6 +21,7 @@
  */
 
 #include "ns3/core-module.h"
+#include "ns3/config-store-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/gnuplot.h"
 #include "ns3/gnuplot.h"
@@ -32,16 +33,40 @@
 #include <iostream>
 #include <sstream>
 
-NS_LOG_COMPONENT_DEFINE ("Wifi11aBianchiValidation");
 
 using namespace ns3;
 
 std::ofstream cwTraceFile;
+std::ofstream backoffTraceFile;
+std::ofstream phyTxTraceFile;
+
+// Parse context strings of the form "/NodeList/3/DeviceList/1/Mac/Assoc"
+// to extract the NodeId
+uint32_t
+ContextToNodeId (std::string context)
+{
+  std::string sub = context.substr (10);  // skip "/NodeList/"
+  uint32_t pos = sub.find ("/Device");
+  NS_LOG_DEBUG ("Found NodeId " << atoi (sub.substr (0, pos).c_str ()));
+  return atoi (sub.substr (0,pos).c_str ());
+}
 
 void
-CwTrace (uint32_t oldVal, uint32_t newVal)
+CwTrace (std::string context, uint32_t oldVal, uint32_t newVal)
 {
-  cwTraceFile << Simulator::Now ().GetSeconds () << " " << oldVal << " " << newVal << std::endl;
+  cwTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << newVal << std::endl;
+}
+
+void
+BackoffTrace (std::string context, uint32_t oldVal, uint32_t newVal)
+{
+  backoffTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << newVal << std::endl;
+}
+
+void
+PhyTxTrace (std::string context, Ptr<const Packet> p)
+{
+  phyTxTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << p->GetSize () << std::endl;
 }
 
 class Experiment
@@ -97,6 +122,7 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
                  const WifiMacHelper &wifiMac, const YansWifiChannelHelper &wifiChannel,
                  uint32_t pktSize, uint32_t networkSize, double delta, uint32_t gridWidth, double duration,  double &thput)
 {
+  bool saveAttributeConfig = false;
   m_bytesTotal = 0;
 
   NodeContainer c;
@@ -161,11 +187,27 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
     }
 
   // Trace CW evolution
-  Config::ConnectWithoutContext ("/NodeList/0/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::RegularWifiMac/DcaTxop/DcfCwTrace", MakeCallback (&CwTrace));
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/DcaTxop/DcfCwTrace", MakeCallback (&CwTrace));
+
+  // Trace backoff evolution
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/DcaTxop/DcfBackoffTrace", MakeCallback (&BackoffTrace));
+
+  // Trace Phy Tx start events
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin", MakeCallback (&PhyTxTrace));
 
   FlowMonitorHelper flowmon;
   Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
   Simulator::Stop (Seconds (duration + 0.5));
+
+  if (saveAttributeConfig)
+    {
+      // Output config store to txt format
+      Config::SetDefault ("ns3::ConfigStore::Filename", StringValue ("output-attributes.txt"));
+      Config::SetDefault ("ns3::ConfigStore::FileFormat", StringValue ("RawText"));
+      Config::SetDefault ("ns3::ConfigStore::Mode", StringValue ("Save"));
+      ConfigStore outputConfig2;
+      outputConfig2.ConfigureAttributes ();
+    }
 
   Simulator::Run ();
   double totalbytes = 0;
@@ -202,7 +244,9 @@ int main (int argc, char *argv[])
   Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("22000"));
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("22000"));
   Config::SetDefault ("ns3::WifiRemoteStationManager::MaxSlrc", UintegerValue (1000));
-  cwTraceFile.open ("wifi-a-cw-trace.out");
+  cwTraceFile.open ("wifi-11a-cw-trace.out");
+  backoffTraceFile.open ("wifi-11a-backoff-trace.out");
+  phyTxTraceFile.open ("wifi-11a-phy-tx-trace.out");
 
   // Align with OFDM standard values
   Config::SetDefault ("ns3::DcaTxop::MinCw", UintegerValue (15));
@@ -230,10 +274,10 @@ int main (int argc, char *argv[])
     }
 
   std::stringstream ss;
-  ss << "wifi-a-" << netSize << "-p-" << pktSize << "-throughput.plt";
+  ss << "wifi-11a-" << netSize << "-p-" << pktSize << "-throughput.plt";
   std::ofstream netSizeThroughputPlot (ss.str ().c_str ());
   ss.str ("");
-  ss << "wifi-a-" << netSize << "-p-" << pktSize << "-throughput.eps";
+  ss << "wifi-11a-" << netSize << "-p-" << pktSize << "-throughput.eps";
   Gnuplot gnuplot = Gnuplot (ss.str ());
 
 
@@ -271,6 +315,7 @@ int main (int argc, char *argv[])
         {
           std::cout << "Running 6 Mb/s experiment for " << n << " nodes " << std::endl;
           cwTraceFile << "# 6 Mb/s rate; " << n << " nodes" << std::endl;
+          backoffTraceFile << "# 6 Mb/s rate; " << n << " nodes" << std::endl;
           experiment.Run (wifi, wifiPhy, wifiMac, wifiChannel, pktSize, n, delta, gridWidth, duration, thput);
           mean_t += thput;
           thput_vector[run_index - 1] = thput;
@@ -324,5 +369,7 @@ set style increment user");
   netSizeThroughputPlot.close ();
 
   cwTraceFile.close ();
+  backoffTraceFile.close ();
+  phyTxTraceFile.close ();
   return 0;
 }
