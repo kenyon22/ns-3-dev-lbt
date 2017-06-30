@@ -40,6 +40,7 @@ using namespace ns3;
 std::ofstream cwTraceFile;
 std::ofstream backoffTraceFile;
 std::ofstream phyTxTraceFile;
+std::ofstream macTxTraceFile;
 
 // Parse context strings of the form "/NodeList/3/DeviceList/1/Mac/Assoc"
 // to extract the NodeId
@@ -68,6 +69,12 @@ void
 PhyTxTrace (std::string context, Ptr<const Packet> p)
 {
   phyTxTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << p->GetSize () << std::endl;
+}
+
+void
+MacTxTrace (std::string context, Ptr<const Packet> p)
+{
+  macTxTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << p->GetSize () << std::endl;
 }
 
 class Experiment
@@ -196,6 +203,9 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
   // Trace Phy Tx start events
   Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin", MakeCallback (&PhyTxTrace));
 
+  // Trace packet arrivals
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/MacTx", MakeCallback (&MacTxTrace));
+
   FlowMonitorHelper flowmon;
   Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
   Simulator::Stop (Seconds (duration + 0.5));
@@ -248,6 +258,7 @@ int main (int argc, char *argv[])
   cwTraceFile.open ("wifi-11a-cw-trace.out");
   backoffTraceFile.open ("wifi-11a-backoff-trace.out");
   phyTxTraceFile.open ("wifi-11a-phy-tx-trace.out");
+  macTxTraceFile.open ("wifi-11a-mac-tx-trace.out");
 
   // Align with OFDM standard values
   Config::SetDefault ("ns3::DcaTxop::MinCw", UintegerValue (15));
@@ -372,5 +383,6 @@ set style increment user");
   cwTraceFile.close ();
   backoffTraceFile.close ();
   phyTxTraceFile.close ();
+  macTxTraceFile.close ();
   return 0;
 }
