@@ -21,6 +21,7 @@
 #ifndef DCA_TXOP_H
 #define DCA_TXOP_H
 
+#include "ns3/traced-value.h"
 #include "mac-low.h"
 #include "wifi-mac-header.h"
 #include "wifi-remote-station-manager.h"
@@ -416,6 +417,9 @@ protected:
   WifiMacHeader m_currentHdr; //!< the current header
   MacLowTransmissionParameters m_currentParams; ///< current transmission parameters
   uint8_t m_fragmentNumber; //!< the fragment number
+
+  TracedValue<uint32_t> m_dcfBackoffTrace;   //!< backoff trace value
+  TracedValue<uint32_t> m_dcfCwTrace;        //!< CW trace value
 };
 
 } //namespace ns3
