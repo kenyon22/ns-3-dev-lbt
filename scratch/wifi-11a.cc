@@ -24,12 +24,9 @@
 #include "ns3/config-store-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/gnuplot.h"
-#include "ns3/gnuplot.h"
 #include "ns3/wifi-module.h"
-#include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/applications-module.h"
-#include "ns3/flow-monitor-module.h"
 #include <iostream>
 #include <sstream>
 
@@ -41,6 +38,9 @@ std::ofstream cwTraceFile;
 std::ofstream backoffTraceFile;
 std::ofstream phyTxTraceFile;
 std::ofstream macTxTraceFile;
+std::ofstream socketRecvTraceFile;
+std::vector<uint32_t> packetsReceived (100);
+std::vector<uint32_t> bytesReceived (100);
 
 // Parse context strings of the form "/NodeList/3/DeviceList/1/Mac/Assoc"
 // to extract the NodeId
@@ -77,61 +77,40 @@ MacTxTrace (std::string context, Ptr<const Packet> p)
   macTxTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << p->GetSize () << std::endl;
 }
 
+void
+SocketRecvTrace (std::string context, Ptr<const Packet> p, const Address &addr)
+{
+  socketRecvTraceFile << Simulator::Now ().GetSeconds () << " " << ContextToNodeId (context) << " " << p->GetSize () << std::endl;
+}
+
+void
+SocketRecvStats (std::string context, Ptr<const Packet> p, const Address &addr)
+{
+  uint32_t nodeId = ContextToNodeId (context);
+  bytesReceived[nodeId] += p->GetSize ();
+  packetsReceived[nodeId]++;
+}
+
 class Experiment
 {
 public:
   Experiment ();
   int Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
            const WifiMacHelper &wifiMac, const YansWifiChannelHelper &wifiChannel,
-           uint32_t pktSize, uint32_t netSize, double delta, uint32_t gridWidth, double duration, double &val_needed);
+           uint32_t pktSize, uint32_t netSize, double delta, uint32_t gridWidth,           double duration, double &val_needed, bool tracing);
 private:
-  void ReceivePacket (Ptr<Socket> socket);
-  void SetPosition (Ptr<Node> node, Vector position);
-  Ptr <Application> GetOnOff (Ptr<Node> node);
-  Ptr<Socket> SetupPacketReceive (Ptr<Node> node);
-
-  uint32_t m_bytesTotal;
 };
 
 Experiment::Experiment ()
 {
 }
 
-void
-Experiment::SetPosition (Ptr<Node> node, Vector position)
-{
-  Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
-  mobility->SetPosition (position);
-}
-
-void
-Experiment::ReceivePacket (Ptr<Socket> socket)
-{
-  Ptr<Packet> packet;
-  while (packet = socket->Recv ())
-    {
-      m_bytesTotal += packet->GetSize ();
-    }
-}
-
-Ptr<Socket>
-Experiment::SetupPacketReceive (Ptr<Node> node)
-{
-  TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
-  Ptr<Socket> sink = Socket::CreateSocket (node, tid);
-  sink->Bind (InetSocketAddress (Ipv4Address ("0.0.0.0"),80));
-  sink->SetRecvCallback (MakeCallback (&Experiment::ReceivePacket, this));
-
-  return sink;
-}
-
 int
 Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
                  const WifiMacHelper &wifiMac, const YansWifiChannelHelper &wifiChannel,
-                 uint32_t pktSize, uint32_t networkSize, double delta, uint32_t gridWidth, double duration,  double &thput)
+                 uint32_t pktSize, uint32_t networkSize, double delta, uint32_t gridWidth, double duration,  double &throughput, bool tracing)
 {
   bool saveAttributeConfig = false;
-  m_bytesTotal = 0;
 
   NodeContainer c;
   c.Create (networkSize);
@@ -154,60 +133,55 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.Install (c);
 
-  InternetStackHelper internet;
-  internet.Install (c);
-
-  Ipv4AddressHelper ipv4;
-  NS_LOG_INFO ("Assign IP Addresses.");
-  ipv4.SetBase ("10.1.1.0", "255.255.255.0");
-  Ipv4InterfaceContainer interface = ipv4.Assign (devices);
+  PacketSocketHelper packetSocket;
+  packetSocket.Install (c);
 
   uint32_t nNodes = c.GetN ();
-  std::vector<Ptr<Socket> > recvSinks;
   ApplicationContainer apps;
   TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
   Ptr<UniformRandomVariable> startTime = CreateObject<UniformRandomVariable> ();
   startTime->SetAttribute ("Max", DoubleValue (200.0));
-  //phy.EnablePcapAll("myfirst");
   for (uint32_t i = 0; i < nNodes; ++i)
     {
-      recvSinks.push_back (SetupPacketReceive (c.Get (i)));
-
       uint32_t j = (i + 1) % nNodes;
-      uint32_t interface =
-        c.Get (j)->GetObject<Ipv4> ()->GetInterfaceForDevice (c.Get (j)->GetDevice (0));
-      InetSocketAddress remote =
-        InetSocketAddress (c.Get (j)->GetObject<Ipv4> ()->GetAddress (interface,0).GetLocal (), 80);
+      PacketSocketAddress socketAddr;
+      socketAddr.SetSingleDevice (devices.Get (i)->GetIfIndex ());
+      socketAddr.SetPhysicalAddress (devices.Get (j)->GetAddress ());
+      socketAddr.SetProtocol (1);
 
-      OnOffHelper onoff ("ns3::UdpSocketFactory", Address (remote));
-      onoff.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=250]"));
+      Ptr<PacketSocketClient> client = CreateObject<PacketSocketClient> ();
+      client->SetRemote (socketAddr);
+      c.Get (i)->AddApplication (client);
+      client->SetAttribute ("PacketSize", UintegerValue (pktSize));
+      client->SetAttribute ("MaxPackets", UintegerValue (0));
+      client->SetAttribute ("Interval", TimeValue (MilliSeconds (1)));
 
-      onoff.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
-      onoff.SetAttribute ("DataRate", DataRateValue (DataRate (60000000)));
-      onoff.SetAttribute ("PacketSize", UintegerValue (pktSize));
-
-      ApplicationContainer app = onoff.Install (c.Get (i));
-      app.Start (Seconds (0.5) +
-                 NanoSeconds (startTime->GetInteger ()));
-      app.Stop (Seconds (duration + 0.5));
-
-      apps.Add (app);
+      Ptr<PacketSocketServer> server = CreateObject<PacketSocketServer> ();
+      server->SetLocal (socketAddr);
+      c.Get (j)->AddApplication (server);
     }
 
-  // Trace CW evolution
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/DcaTxop/DcfCwTrace", MakeCallback (&CwTrace));
+    // Log packet receptions
+    Config::Connect ("/NodeList/*/$ns3::Node/ApplicationList/*/$ns3::PacketSocketServer/Rx", MakeCallback (&SocketRecvStats));
 
-  // Trace backoff evolution
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/DcaTxop/DcfBackoffTrace", MakeCallback (&BackoffTrace));
+  if (tracing)
+    {
+      // Trace CW evolution
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/DcaTxop/DcfCwTrace", MakeCallback (&CwTrace));
 
-  // Trace Phy Tx start events
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin", MakeCallback (&PhyTxTrace));
+      // Trace backoff evolution
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/DcaTxop/DcfBackoffTrace", MakeCallback (&BackoffTrace));
 
-  // Trace packet arrivals
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/MacTx", MakeCallback (&MacTxTrace));
+      // Trace Phy Tx start events
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin", MakeCallback (&PhyTxTrace));
 
-  FlowMonitorHelper flowmon;
-  Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
+      // Trace packet arrivals to the Wifi device
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::AdhocWifiMac/MacTx", MakeCallback (&MacTxTrace));
+
+      // Trace packet receptions
+      Config::Connect ("/NodeList/*/$ns3::Node/ApplicationList/*/$ns3::PacketSocketServer/Rx", MakeCallback (&SocketRecvTrace));
+    }
+
   Simulator::Stop (Seconds (duration + 0.5));
 
   if (saveAttributeConfig)
@@ -221,68 +195,75 @@ Experiment::Run (const WifiHelper &wifi, const YansWifiPhyHelper &wifiPhy,
     }
 
   Simulator::Run ();
-  double totalbytes = 0;
-
-  monitor->CheckForLostPackets ();
-  Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
-  std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
-  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
-    {
-      //Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
-      // std::cout << "Flow " << i->first  << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
-      std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-      std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-      //std::cout << i->second.rxBytes * 8.0 / (i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds())/1000/1000  << "\n";
-      totalbytes +=  i->second.rxBytes;
-    }
-
   Simulator::Destroy ();
-  thput = ((totalbytes * 8.0) / (1000 * 1000 * duration)); // Mb/s
+  if (tracing)
+    {
+      cwTraceFile.flush ();
+      backoffTraceFile.flush ();
+      phyTxTraceFile.flush ();
+      macTxTraceFile.flush ();
+      socketRecvTraceFile.flush ();
+    }
   return 0;
 }
 
 int main (int argc, char *argv[])
 {
   uint32_t verbose = 0;
+  bool tracing = false;
   double duration = 300;
   uint32_t netSize = 50;
   uint32_t pktSize = 1500;
   double delta = 0.001;
-  uint32_t rmax = 20;
+  uint32_t trials = 20;
   uint32_t gridWidth = 10;
 
   // disable fragmentation
   Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("22000"));
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("22000"));
-  Config::SetDefault ("ns3::WifiRemoteStationManager::MaxSlrc", UintegerValue (1000));
-  cwTraceFile.open ("wifi-11a-cw-trace.out");
-  backoffTraceFile.open ("wifi-11a-backoff-trace.out");
-  phyTxTraceFile.open ("wifi-11a-phy-tx-trace.out");
-  macTxTraceFile.open ("wifi-11a-mac-tx-trace.out");
-
+  // Disable short retransmission failure (make retransmissions persistent)
+  Config::SetDefault ("ns3::WifiRemoteStationManager::MaxSlrc", UintegerValue (10000));
+  
   // Align with OFDM standard values
   Config::SetDefault ("ns3::DcaTxop::MinCw", UintegerValue (15));
   Config::SetDefault ("ns3::DcaTxop::MaxCw", UintegerValue (1023));
 
   CommandLine cmd;
   cmd.AddValue ("verbose", "Show log output (default is 0: no log)", verbose);
-  cmd.AddValue ("netSize", "The maximal Network Size", netSize);
+  cmd.AddValue ("tracing", "Generate trace files", tracing);
+  cmd.AddValue ("netSize", "The maximum network size", netSize);
   cmd.AddValue ("pktSize", "The frame size", pktSize);
-  cmd.AddValue ("rmax", "The maximal number of runs per network size", rmax);
+  cmd.AddValue ("trials", "The maximal number of runs per network size", trials);
   cmd.AddValue ("delta", "The delta offset in grid topology", delta);
   cmd.AddValue ("gridWidth", "The width of the grid", gridWidth);
-  cmd.AddValue ("duration", "Time duration for each case (seconds)", duration);
+  cmd.AddValue ("duration", "Time duration for each trial (seconds)", duration);
   cmd.Parse (argc, argv);
+
+  if (tracing)
+    {
+      cwTraceFile.open ("wifi-11a-cw-trace.out");
+      backoffTraceFile.open ("wifi-11a-backoff-trace.out");
+      phyTxTraceFile.open ("wifi-11a-phy-tx-trace.out");
+      macTxTraceFile.open ("wifi-11a-mac-tx-trace.out");
+      socketRecvTraceFile.open ("wifi-11a-socket-recv-trace.out");
+    }
 
   if (verbose == 1)
     {
-      LogComponentEnable ("WifiBianchiValidation", LOG_LEVEL_ALL);
+      LogComponentEnable ("WifiBianchi11aValidation", LOG_LEVEL_ALL);
     }
   else if (verbose == 2)
     {
-
-      LogComponentEnable ("WifiBianchiValidation", LOG_LEVEL_ALL);
+      LogComponentEnable ("WifiBianchi11aValidation", LOG_LEVEL_ALL);
       LogComponentEnable ("DcfManager", LOG_LEVEL_ALL);
+      LogComponentEnable ("DcaTxop", LOG_LEVEL_ALL);
+      LogComponentEnable ("EdcaTxopN", LOG_LEVEL_ALL);
+    }
+  else if (verbose == 2)
+    {
+      LogComponentEnable ("WifiBianchi11aValidation", LOG_LEVEL_ALL);
+      WifiHelper h;
+      h.EnableLogComponents ();
     }
 
   std::stringstream ss;
@@ -291,7 +272,6 @@ int main (int argc, char *argv[])
   ss.str ("");
   ss << "wifi-11a-" << netSize << "-p-" << pktSize << "-throughput.eps";
   Gnuplot gnuplot = Gnuplot (ss.str ());
-
 
   WifiHelper wifi;
   wifi.SetStandard (WIFI_PHY_STANDARD_80211a);
@@ -307,40 +287,44 @@ int main (int argc, char *argv[])
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("OfdmRate6Mbps"));
 
-
   Gnuplot2dDataset dataset;
   Gnuplot2dDataset dataset_bianchi;
   dataset.SetErrorBars (Gnuplot2dDataset::Y);
   dataset.SetStyle (Gnuplot2dDataset::LINES_POINTS);
   dataset_bianchi.SetStyle (Gnuplot2dDataset::LINES_POINTS);
 
-  double mean_t,thput,stDev,thput_vector[rmax];
-
+  double mean_t, throughput, stDev, throughputVector[trials];
 
   for (uint32_t n = 5; n <= netSize; n += 5)
     {
 
       mean_t = 0;
-      thput = 0;
+      throughput = 0;
 
-      for (uint32_t run_index = 1; run_index <= rmax; run_index++)
+      for (uint32_t run_index = 1; run_index <= trials; run_index++)
         {
-          std::cout << "Running 6 Mb/s experiment for " << n << " nodes " << std::endl;
-          cwTraceFile << "# 6 Mb/s rate; " << n << " nodes" << std::endl;
-          backoffTraceFile << "# 6 Mb/s rate; " << n << " nodes" << std::endl;
-          experiment.Run (wifi, wifiPhy, wifiMac, wifiChannel, pktSize, n, delta, gridWidth, duration, thput);
-          mean_t += thput;
-          thput_vector[run_index - 1] = thput;
+          std::cout << "Trial " << run_index << " of " << trials << "; 6 Mb/s for " << n << " nodes " << std::endl;
+          if (tracing)
+            {
+              cwTraceFile << "# Trial " << run_index << " of " << trials << "; 6 Mb/s for " << n << " nodes" << std::endl;
+              backoffTraceFile << "# Trial " << run_index << " of " << trials << "; 6 Mb/s for " << n << " nodes" << std::endl;
+              phyTxTraceFile << "# Trial " << run_index << " of " << trials << "; 6 Mb/s for " << n << " nodes" << std::endl;
+              macTxTraceFile << "# Trial " << run_index << " of " << trials << "; 6 Mb/s for " << n << " nodes" << std::endl;
+              socketRecvTraceFile << "# Trial " << run_index << " of " << trials << "; 6 Mb/s for " << n << " nodes" << std::endl;
+            }
+          experiment.Run (wifi, wifiPhy, wifiMac, wifiChannel, pktSize, n, delta, gridWidth, duration, throughput, tracing);
+          mean_t += throughput;
+          throughputVector[run_index - 1] = throughput;
         }
 
-      mean_t = mean_t / rmax;
+      mean_t = mean_t / trials;
       stDev = 0;
-      for (uint32_t i = 0; i < rmax; ++i)
+      for (uint32_t i = 0; i < trials; ++i)
         {
-          stDev += pow (thput_vector[i] - mean_t, 2);
+          stDev += pow (throughputVector[i] - mean_t, 2);
         }
 
-      stDev = sqrt (stDev / (rmax - 1));
+      stDev = sqrt (stDev / (trials - 1));
       dataset.Add (n, mean_t, stDev);
 
       std::cout << mean_t;
@@ -380,9 +364,13 @@ set style increment user");
   gnuplot.GenerateOutput (netSizeThroughputPlot);
   netSizeThroughputPlot.close ();
 
-  cwTraceFile.close ();
-  backoffTraceFile.close ();
-  phyTxTraceFile.close ();
-  macTxTraceFile.close ();
+  if (tracing)
+    {
+      cwTraceFile.close ();
+      backoffTraceFile.close ();
+      phyTxTraceFile.close ();
+      macTxTraceFile.close ();
+      socketRecvTraceFile.close ();
+    }
   return 0;
 }
