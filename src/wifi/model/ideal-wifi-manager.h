@@ -40,6 +40,11 @@ namespace ns3 {
  * and uses it to pick a transmission mode based on a set
  * of snr thresholds built from a target ber and transmission
  * mode-specific snr/ber curves.
+ *
+ * This model does not presently account for WifiPhy configuration
+ * changes that may occur during runtime (after object initialization time),
+ * including changing the number of antennas, the guard interval, or the
+ * channel width.
  */
 class IdealWifiManager : public WifiRemoteStationManager
 {
@@ -52,7 +57,10 @@ public:
   IdealWifiManager ();
   virtual ~IdealWifiManager ();
 
+  // Inherited from WifiRemoteStationManager
   void SetupPhy (const Ptr<WifiPhy> phy);
+
+  typedef void (*RateChangeTracedCallback)(const uint64_t rate, const Mac48Address remoteAddress);
 
 
 private:
@@ -100,6 +108,37 @@ private:
    * \return the channel width (MHz) for the selected mode
    */
   uint8_t GetChannelWidthForMode (WifiMode mode) const;
+  /**
+   * \param st Station under consideration
+   * \return true if cached values may be reused
+   */
+  bool UseCachedDataTxVector (WifiRemoteStation* st) const;
+  /**
+   * \param st Station under consideration
+   * \mode WifiMode value to update the cached value to
+   * \mode nss value to update the cached value to
+   */
+  void UpdateCachedDataTxVector (WifiRemoteStation* st, WifiMode mode, uint8_t nss, uint16_t guardInterval, uint8_t channelWidth);
+  /**
+   * \param st Station under consideration
+   * \return true if suitable HE MCS is found
+   */
+  bool DoGetDataTxVectorHe (WifiRemoteStation* st);
+  /**
+   * \param st Station under consideration
+   * \return true if suitable VHT MCS is found
+   */
+  bool DoGetDataTxVectorVht (WifiRemoteStation* st);
+  /**
+   * \param st Station under consideration
+   * \return true if suitable HT MCS is found
+   */
+  bool DoGetDataTxVectorHt (WifiRemoteStation* st);
+  /**
+   * \param st Station under consideration
+   * \return true if suitable legacy mode is found
+   */
+  bool DoGetDataTxVectorLegacy (WifiRemoteStation* st);
 
   /**
    * A vector of <snr, WifiTxVector> pair holding the minimum SNR for the
@@ -110,7 +149,10 @@ private:
   double m_ber;             //!< The maximum Bit Error Rate acceptable at any transmission mode
   Thresholds m_thresholds;  //!< List of WifiTxVector and the minimum SNR pair
 
-  TracedValue<uint64_t> m_currentRate; //!< Trace rate changes
+  /**
+   * The trace source fired when the transmission rate change.
+   */
+  TracedCallback<uint64_t, Mac48Address> m_rateChange;
 };
 
 } //namespace ns3
