@@ -21,6 +21,7 @@
 
 #include "spectrum-wifi-helper.h"
 #include "ns3/spectrum-wifi-phy.h"
+#include "ns3/wifi-spectrum-helper.h"
 #include "ns3/names.h"
 #include "ns3/log.h"
 
@@ -29,7 +30,8 @@ namespace ns3 {
 NS_LOG_COMPONENT_DEFINE ("SpectrumWifiHelper");
 
 SpectrumWifiPhyHelper::SpectrumWifiPhyHelper ()
-  : m_channel (0)
+  : m_channel (0),
+    m_channelNumber (1)
 {
   m_phy.SetTypeId ("ns3::SpectrumWifiPhy");
 }
@@ -55,6 +57,12 @@ SpectrumWifiPhyHelper::SetChannel (std::string channelName)
   m_channel = channel;
 }
 
+void
+SpectrumWifiPhyHelper::SetChannelNumber (uint16_t nch)
+{
+  m_channelNumber = nch;
+}
+
 Ptr<WifiPhy>
 SpectrumWifiPhyHelper::Create (Ptr<Node> node, Ptr<NetDevice> device) const
 {
@@ -63,8 +71,12 @@ SpectrumWifiPhyHelper::Create (Ptr<Node> node, Ptr<NetDevice> device) const
   Ptr<ErrorRateModel> error = m_errorRateModel.Create<ErrorRateModel> ();
   phy->SetErrorRateModel (error);
   phy->SetChannel (m_channel);
+  phy->SetChannelNumber (m_channelNumber);
+  phy->SetChannelModel (m_channelModel);
   phy->SetDevice (device);
   phy->SetMobility (node->GetObject<MobilityModel> ());
+  phy->SetNoisePowerSpectralDensity (WifiSpectrumHelper::CreateNoisePowerSpectralDensity (0, m_channelNumber));
+  m_channel->AddRx (phy->GetSpectrumPhy());
   return phy;
 }
 

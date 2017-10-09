@@ -27,6 +27,8 @@
 #include "ns3/wifi-spectrum-value-helper.h"
 #include "ns3/log.h"
 #include "ns3/boolean.h"
+#include "ns3/spectrum-model-ism2400MHz-res1MHz.h"
+
 #include "wifi-spectrum-signal-parameters.h"
 #include "wifi-utils.h"
 
@@ -170,7 +172,7 @@ SpectrumWifiPhy::SetChannelWidth (uint8_t channelwidth)
     }
 }
 
-void 
+void
 SpectrumWifiPhy::ConfigureStandard (WifiPhyStandard standard)
 {
   NS_LOG_FUNCTION (this << standard);
@@ -268,6 +270,15 @@ SpectrumWifiPhy::GetRxAntenna (void) const
 }
 
 void
+SpectrumWifiPhy::SetNoisePowerSpectralDensity (Ptr<const SpectrumValue> noisePsd)
+{
+  NS_LOG_FUNCTION (this << noisePsd);
+  NS_ASSERT (noisePsd);
+  m_rxSpectrumModel = noisePsd->GetSpectrumModel ();
+  NS_ASSERT (m_rxSpectrumModel);
+}
+
+void
 SpectrumWifiPhy::SetAntenna (const Ptr<AntennaModel> a)
 {
   NS_LOG_FUNCTION (this << a);
@@ -281,6 +292,42 @@ SpectrumWifiPhy::CreateWifiSpectrumPhyInterface (Ptr<NetDevice> device)
   m_wifiSpectrumPhyInterface = CreateObject<WifiSpectrumPhyInterface> ();
   m_wifiSpectrumPhyInterface->SetSpectrumWifiPhy (this);
   m_wifiSpectrumPhyInterface->SetDevice (device);
+}
+
+void
+SpectrumWifiPhy::SetSpectrumPhy (Ptr<WifiSpectrumPhyInterface> wifiSpectrumPhyInterface)
+{
+  m_wifiSpectrumPhyInterface = wifiSpectrumPhyInterface;
+}
+
+Ptr<SpectrumValue>
+SpectrumWifiPhy::CreateRxMask ()
+{
+  NS_LOG_FUNCTION (this);
+
+  Ptr<SpectrumValue> rxMask = Create <SpectrumValue> (SpectrumModelIsm2400MhzRes1Mhz);
+
+  // Determine which bin in our spectrum model corresponds to the
+  // centre of our channel.
+  uint16_t centreBin = GetFrequency () - 2400;
+
+  const uint16_t filterHalfBandwidthMHz = 10;
+
+  (*rxMask)[centreBin] = 1;
+  for (uint16_t i = 1; i < filterHalfBandwidthMHz; i++)
+  {
+    if (centreBin >= i)
+      {
+        (*rxMask)[centreBin - i] = 0;
+      }
+
+    if ((centreBin + i) < rxMask->GetSpectrumModel ()->GetNumBands ())
+      {
+        (*rxMask)[centreBin + i] = 0;
+      }
+  }
+
+  return rxMask;
 }
 
 Ptr<SpectrumValue>

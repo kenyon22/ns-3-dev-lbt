@@ -109,6 +109,7 @@ public:
    * \param device pointer to the NetDevice object including this new object
    */
   void CreateWifiSpectrumPhyInterface (Ptr<NetDevice> device);
+  void SetSpectrumPhy (Ptr<WifiSpectrumPhyInterface> wifiSpectrumPhyInterface);
   /**
    * \return pointer to WifiSpectrumPhyInterface associated with this Phy
    */
@@ -159,6 +160,17 @@ public:
   typedef void (* SignalArrivalCallback) (bool signalType, uint32_t senderNodeId, double rxPower, Time duration);
 
   Ptr<Channel> GetChannel (void) const;
+
+  /**
+   * This method creates Rx mask
+   */
+  Ptr<SpectrumValue> CreateRxMask ();
+  /**
+   * \brief set the noise power spectral density
+   * @param noisePsd the Noise Power Spectral Density in power units
+   * (Watt, Pascal...) per Hz.
+   */
+  void SetNoisePowerSpectralDensity (Ptr<const SpectrumValue> noisePsd);
 
   // The following four methods call to the base WifiPhy class method
   // but also generate a new SpectrumModel if called during runtime

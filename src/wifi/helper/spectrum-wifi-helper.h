@@ -61,6 +61,10 @@ public:
    * Every PHY created by a call to Install is associated to this channel.
    */
   void SetChannel (std::string channelName);
+  /**
+   * \param channelnum the channel number to which created PHYs will be tuned
+   */
+  void SetChannelNumber (uint16_t nch);
 
 private:
   /**
@@ -73,6 +77,7 @@ private:
   virtual Ptr<WifiPhy> Create (Ptr<Node> node, Ptr<NetDevice> device) const;
 
   Ptr<SpectrumChannel> m_channel; ///< the channel
+  uint16_t m_channelNumber;
 };
 
 } //namespace ns3
