@@ -30,6 +30,7 @@
 #include "ns3/channel.h"
 #include "wifi-phy-standard.h"
 #include "interference-helper.h"
+#include "frame-sync-error-rate-lookup.h"
 #include "ns3/node.h"
 #include "ns3/string.h"
 
@@ -1494,6 +1495,18 @@ public:
    */
   uint16_t GetFrequency (void) const;
   /**
+   * Set the channel model used for error rates.
+   *
+   * \param model the channel model
+   */
+  void SetChannelModel (enum FrameSyncErrorRateLookup::ChannelModel model);
+  /**
+   * Get the channel model used for error rates.
+   *
+   * \return the channel model
+   */
+  enum FrameSyncErrorRateLookup::ChannelModel GetChannelModel (void) const;
+  /**
    * \param antennas the number of antennas on this node.
    */
   void SetNumberOfAntennas (uint8_t antennas);
@@ -1800,7 +1813,7 @@ private:
    * Eventually switch to CCA busy
    */
   void MaybeCcaBusyDuration (void);
-  
+
   /**
    * Starting receiving the packet after having detected the medium is idle or after a reception switch.
    *
@@ -1980,6 +1993,9 @@ private:
 
   Ptr<InterferenceHelper::Event> m_currentEvent; //!< Hold the current event
   Ptr<FrameCaptureModel> m_frameCaptureModel; //!< Frame capture model
+
+  enum FrameSyncErrorRateLookup::ChannelModel m_channelModel; //!< Channel model used for error rates
+  Ptr<FrameSyncErrorRateLookup> m_frameSyncErrorRateModel; //!< Pointer to FrameSyncErrorRateLookup
 };
 
 /**

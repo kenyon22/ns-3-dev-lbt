@@ -25,6 +25,7 @@
 
 #include "ns3/trace-helper.h"
 #include "ns3/wifi-phy.h"
+#include "ns3/frame-sync-error-rate-lookup.h"
 #include "wifi-mac-helper.h"
 
 namespace ns3 {
@@ -98,6 +99,10 @@ public:
                           std::string n5 = "", const AttributeValue &v5 = EmptyAttributeValue (),
                           std::string n6 = "", const AttributeValue &v6 = EmptyAttributeValue (),
                           std::string n7 = "", const AttributeValue &v7 = EmptyAttributeValue ());
+  /**
+   * \param model the channel model to use for PHY error rates
+   */
+  void SetChannelModel (enum FrameSyncErrorRateLookup::ChannelModel model);
 
   /**
    * An enumeration of the pcap data link types (DLTs) which this helper
@@ -165,6 +170,7 @@ protected:
 
   ObjectFactory m_phy; ///< PHY object
   ObjectFactory m_errorRateModel; ///< error rate model
+  enum FrameSyncErrorRateLookup::ChannelModel m_channelModel;
 
 private:
   /**

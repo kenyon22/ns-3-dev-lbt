@@ -112,6 +112,15 @@ private:
     double per; ///< PER
   };
 
+  /**
+   * A struct containing interference power level and its time duration
+   */
+  struct InterferencePowerDuration
+  {
+    double interferencePowerW;
+    Time duration;
+  };
+
   InterferenceHelper ();
   ~InterferenceHelper ();
 
@@ -193,6 +202,14 @@ private:
    * \return struct of SNR and PER
    */
   struct InterferenceHelper::SnrPer CalculatePlcpHeaderSnrPer (Ptr<InterferenceHelper::Event> event);
+  /**
+   * Calculate the average SNIR (in W/W) during the PLCP SYNC field of the
+   * packet's preamble.
+   *
+   * \param event the event corresponding to the first time the packet arrives
+   * \return the average SNIR (in W/W) during SYNC field
+   */
+  double CalculateAvgSyncFieldSnir (Ptr<InterferenceHelper::Event> event);
 
   /**
    * Notify that RX has started.

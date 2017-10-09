@@ -880,6 +880,65 @@ InterferenceHelper::CalculatePlcpHeaderSnrPer (Ptr<InterferenceHelper::Event> ev
   return snrPer;
 }
 
+double
+InterferenceHelper::CalculateAvgSyncFieldSnir (Ptr<InterferenceHelper::Event> event)
+{
+  NiChanges ni;
+  double powerW = event->GetRxPowerW ();
+  WifiTxVector txVector = event->GetTxVector ();
+  CalculateNoiseInterferenceW (event, &ni);
+  NiChanges::iterator j = ni.begin ();
+  Time packetStartTime = (*j).GetTime ();
+  Time plcpSyncFieldEnd = packetStartTime + WifiPhy::GetPlcpPreambleDuration (txVector); // packet start time + sync field
+  struct InterferencePowerDuration interferencePowerDuration;
+  std::vector<struct InterferencePowerDuration> interferencePowerDurationVect;
+  bool niChangesEndsBeforeSyncFieldEnd = true;
+  double noiseInterferenceW = (*j).GetDelta ();
+  Time previous = packetStartTime;
+  j++;
+  while (ni.end () != j)
+    {
+      Time current = (*j).GetTime ();
+      NS_ASSERT (current >= previous);
+      if (current >= plcpSyncFieldEnd)
+        {
+          interferencePowerDuration.interferencePowerW = noiseInterferenceW;
+          interferencePowerDuration.duration = plcpSyncFieldEnd - previous;
+          interferencePowerDurationVect.push_back (interferencePowerDuration);
+          niChangesEndsBeforeSyncFieldEnd = false;
+          break;
+        }
+      interferencePowerDuration.interferencePowerW = noiseInterferenceW;
+      interferencePowerDuration.duration = current - previous;
+      interferencePowerDurationVect.push_back (interferencePowerDuration);
+      noiseInterferenceW += (*j).GetDelta ();
+      previous = current;
+      j++;
+    }
+  if (niChangesEndsBeforeSyncFieldEnd) // end of NiChanges occurs before end of sync field
+    {
+      // zero interference power for rest of sync field
+      interferencePowerDuration.interferencePowerW = 0;
+      interferencePowerDuration.duration = plcpSyncFieldEnd - previous;
+      interferencePowerDurationVect.push_back (interferencePowerDuration);
+    }
+  double weightedTotal = 0;
+  double sumOfWeights = 0;
+  for (std::vector<struct InterferencePowerDuration>::iterator it =
+       interferencePowerDurationVect.begin (); it != interferencePowerDurationVect.end (); ++it)
+    {
+      double weightDuration = (*it).duration.GetMicroSeconds();
+      weightedTotal += (*it).interferencePowerW * weightDuration;
+      sumOfWeights += weightDuration;
+    }
+  double averageInterferencePowerW = 0;
+  if (sumOfWeights != 0)
+    {
+      averageInterferencePowerW = weightedTotal / sumOfWeights; // weighted average
+    }
+  return CalculateSnr (powerW, averageInterferencePowerW, txVector.GetChannelWidth ());
+}
+
 void
 InterferenceHelper::EraseEvents (void)
 {

@@ -321,6 +321,14 @@ WifiPhy::GetTypeId (void)
                    MakePointerAccessor (&WifiPhy::GetFrameCaptureModel,
                                         &WifiPhy::SetFrameCaptureModel),
                    MakePointerChecker <FrameCaptureModel>())
+    .AddAttribute ("ChannelModel",
+                   "The channel model to use for error rates.",
+                   EnumValue (FrameSyncErrorRateLookup::AWGN),
+                   MakeEnumAccessor (&WifiPhy::SetChannelModel,
+                                     &WifiPhy::GetChannelModel),
+                   MakeEnumChecker (FrameSyncErrorRateLookup::AWGN, "awgn",
+                                    FrameSyncErrorRateLookup::D, "d",
+                                    FrameSyncErrorRateLookup::USER_DEFINED, "user"))
     .AddTraceSource ("PhyTxBegin",
                      "Trace source indicating a packet "
                      "has begun transmitting over the channel medium",
@@ -393,6 +401,7 @@ WifiPhy::WifiPhy ()
   NS_UNUSED (m_numberOfReceivers);
   m_random = CreateObject<UniformRandomVariable> ();
   m_state = CreateObject<WifiPhyStateHelper> ();
+  m_frameSyncErrorRateModel = CreateObject<FrameSyncErrorRateLookup> ();
 }
 
 WifiPhy::~WifiPhy ()
@@ -407,6 +416,7 @@ WifiPhy::DoDispose (void)
   m_device = 0;
   m_mobility = 0;
   m_state = 0;
+  m_frameSyncErrorRateModel = 0;
   m_deviceRateSet.clear ();
   m_deviceMcsSet.clear ();
 }
@@ -720,6 +730,20 @@ Ptr<FrameCaptureModel>
 WifiPhy::GetFrameCaptureModel (void) const
 {
   return m_frameCaptureModel;
+}
+
+void
+WifiPhy::SetChannelModel (enum FrameSyncErrorRateLookup::ChannelModel model)
+{
+  NS_LOG_FUNCTION (this << model);
+  m_channelModel = model;
+  m_frameSyncErrorRateModel->SetAttribute ("ChannelModel", EnumValue (model));
+}
+
+enum FrameSyncErrorRateLookup::ChannelModel
+WifiPhy::GetChannelModel (void) const
+{
+  return m_channelModel;
 }
 
 double
@@ -3651,7 +3675,8 @@ void
 WifiPhy::StartRx (Ptr<Packet> packet, WifiTxVector txVector, MpduType mpdutype, double rxPowerW, Time rxDuration, Ptr<InterferenceHelper::Event> event)
 {
   NS_LOG_FUNCTION (this << packet << txVector << (uint16_t)mpdutype << rxPowerW << rxDuration);
-  if (rxPowerW > GetEdThresholdW ()) //checked here, no need to check in the payload reception (current implementation assumes constant rx power over the packet duration)
+  if (rxPowerW > GetEdThresholdW () && //checked here, no need to check in the payload reception (current implementation assumes constant rx power over the packet duration)
+      m_random->GetValue () > m_frameSyncErrorRateModel->GetFrameSyncErrorRate (RatioToDb (m_interference.CalculateAvgSyncFieldSnir (event))))
     {
       AmpduTag ampduTag;
       WifiPreamble preamble = txVector.GetPreambleType ();
@@ -3700,7 +3725,7 @@ WifiPhy::StartRx (Ptr<Packet> packet, WifiTxVector txVector, MpduType mpdutype, 
       NS_ASSERT (m_endPlcpRxEvent.IsExpired ());
       NotifyRxBegin (packet);
       m_interference.NotifyRxStart ();
-    
+
       if (preamble != WIFI_PREAMBLE_NONE)
         {
           NS_ASSERT (m_endPlcpRxEvent.IsExpired ());
@@ -3715,8 +3740,16 @@ WifiPhy::StartRx (Ptr<Packet> packet, WifiTxVector txVector, MpduType mpdutype, 
     }
   else
     {
-      NS_LOG_DEBUG ("drop packet because signal power too Small (" <<
-                    rxPowerW << "<" << GetEdThresholdW () << ")");
+      if (rxPowerW > GetEdThresholdW ())
+        {
+          NS_LOG_DEBUG ("drop packet because signal power too Small (" <<
+                        rxPowerW << "<" << GetEdThresholdW () << ")");
+        }
+      else
+        {
+          NS_LOG_DEBUG ("drop packet because of frame sync error (" <<
+                        "rxPower=" << rxPowerW << ")");
+        }
       NotifyRxDrop (packet);
       m_plcpSuccess = false;
       MaybeCcaBusyDuration ();

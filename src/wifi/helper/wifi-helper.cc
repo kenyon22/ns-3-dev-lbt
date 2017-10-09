@@ -120,7 +120,8 @@ AsciiPhyReceiveSinkWithoutContext (
 }
 
 WifiPhyHelper::WifiPhyHelper ()
-  : m_pcapDlt (PcapHelper::DLT_IEEE802_11)
+  : m_channelModel (FrameSyncErrorRateLookup::AWGN),
+    m_pcapDlt (PcapHelper::DLT_IEEE802_11)
 {
 }
 
@@ -155,6 +156,12 @@ WifiPhyHelper::SetErrorRateModel (std::string name,
   m_errorRateModel.Set (n5, v5);
   m_errorRateModel.Set (n6, v6);
   m_errorRateModel.Set (n7, v7);
+}
+
+void
+WifiPhyHelper::SetChannelModel (enum FrameSyncErrorRateLookup::ChannelModel model)
+{
+  m_channelModel = model;
 }
 
 void
