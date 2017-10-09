@@ -21,6 +21,7 @@
 
 #include "interference-helper.h"
 #include "wifi-phy.h"
+#include "freq-selective-error-rate-model.h"
 #include "ns3/simulator.h"
 #include "ns3/log.h"
 #include <algorithm>
@@ -191,6 +192,12 @@ void
 InterferenceHelper::SetNumberOfReceiveAntennas (uint8_t rx)
 {
   m_numRxAntennas = rx;
+  // XXX this is a workaround to use subclass API
+  Ptr<FreqSelectiveErrorRateModel> em = DynamicCast<FreqSelectiveErrorRateModel> (m_errorRateModel);
+  if (em)
+    {
+      em->SetNumRxAntennas (rx);
+    }
 }
 
 Time
@@ -305,8 +312,14 @@ InterferenceHelper::CalculateChunkSuccessRate (double snir, Time duration, WifiM
     }
   uint64_t rate = mode.GetPhyRate (txVector);
   uint64_t nbits = (uint64_t)(rate * duration.GetSeconds ());
-  if (txVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_HT || txVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_VHT || txVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_HE)
+  Ptr<FreqSelectiveErrorRateModel> freqSelErrorModel = m_errorRateModel->GetObject<FreqSelectiveErrorRateModel> ();
+  if (freqSelErrorModel != NULL) // is frequency selective error rate model
     {
+      freqSelErrorModel->SetNumRxAntennas (m_numRxAntennas); //ensure correct number of antennas is used for error rates
+    }
+  else if (txVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_HT || txVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_VHT || txVector.GetMode ().GetModulationClass () == WIFI_MOD_CLASS_HE)
+    {
+      // using an AWGN error rate model
       nbits /= txVector.GetNss (); //divide effective number of bits by NSS to achieve same chunk error rate as SISO for AWGN
       double gain = (txVector.GetNTx () * m_numRxAntennas); //compute gain offered by MIMO, SIMO or MISO compared to SISO for AWGN
       NS_LOG_DEBUG ("TX=" << (uint16_t)txVector.GetNTx () << ", RX=" << (uint16_t)m_numRxAntennas << ", SNIR improvement=+" << 10.0 * std::log10 (gain) << "dB");
