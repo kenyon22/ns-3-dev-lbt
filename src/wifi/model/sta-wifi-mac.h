@@ -26,10 +26,32 @@
 #include "regular-wifi-mac.h"
 #include "supported-rates.h"
 #include "capability-information.h"
+#include "mgt-headers.h"
+#include "ns3/traced-value.h"
 
 namespace ns3  {
 
-class MgtAddBaRequestHeader;
+/**
+ * \ingroup wifi
+ *
+ * Struct to hold information regarding beacons observed
+ */
+struct BeaconInfo
+{
+  void Clear ()
+    {
+      m_channelNumber = 0;
+      m_bssid = Mac48Address ();
+      m_capabilities = CapabilityInformation ();
+      m_snr = 0;
+      m_probeResp = MgtProbeResponseHeader ();
+    };
+  uint32_t m_channelNumber;
+  Mac48Address m_bssid;
+  CapabilityInformation m_capabilities;
+  double m_snr;
+  MgtProbeResponseHeader m_probeResp;
+};
 
 /**
  * \ingroup wifi
@@ -93,7 +115,9 @@ private:
     ASSOCIATED,
     WAIT_PROBE_RESP,
     WAIT_ASSOC_RESP,
-    BEACON_MISSED,
+    WAIT_BEACON,
+    UNASSOCIATED,
+    SCANNING,
     REFUSED
   };
 
@@ -188,19 +212,41 @@ private:
    * \return the Capability information that we support
    */
   CapabilityInformation GetCapabilities (void) const;
+  /**
+   * This method is called after waiting in passive mode for beacons to
+   * arrive.  If no good beacons, restart scanning; otherwise, send an
+   * Association request to the highest quality beacon received and move
+   * to WAIT_ASSOC_RESP..
+   */
+  void WaitBeaconTimeout (void);
+  /**
+   * Start the scanning process to find the strongest beacon
+   */
+  void StartScanning (void);
+  /**
+   * Continue scanning process or terminate if no further channels to scan
+   */
+  void ScanningTimeout (void);
+
+  virtual void DoInitialize (void);
 
   MacState m_state;            ///< MAC state
   Time m_probeRequestTimeout;  ///< probe request timeout
   Time m_assocRequestTimeout;  ///< assoc request timeout
+  Time m_scanningTimeout;      ///< beacon scanning timeout
   EventId m_probeRequestEvent; ///< probe request event
   EventId m_assocRequestEvent; ///< assoc request event
   EventId m_beaconWatchdog;    ///< beacon watchdog
+  EventId m_waitBeaconEvent;   ///< wait for beacon
   Time m_beaconWatchdogEnd;    ///< beacon watchdog end
   uint32_t m_maxMissedBeacons; ///< maximum missed beacons
   bool m_activeProbing;        ///< active probing
+  std::vector<uint32_t> m_candidateChannels; /// used when scanning
+  BeaconInfo m_bestBeaconObserved; /// used when scanning
 
   TracedCallback<Mac48Address> m_assocLogger;   ///< assoc logger
   TracedCallback<Mac48Address> m_deAssocLogger; ///< deassoc logger
+  TracedValue<Time> m_beaconArrival;            ///< time in queue
 };
 
 } //namespace ns3

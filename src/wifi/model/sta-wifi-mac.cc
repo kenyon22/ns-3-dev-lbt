@@ -24,21 +24,25 @@
 #include "ns3/log.h"
 #include "ns3/simulator.h"
 #include "mac-low.h"
+#include "snr-tag.h"
 
 /*
  * The state machine for this STA is:
  --------------                                          -----------
  | Associated |   <--------------------      ------->    | Refused |
  --------------                        \    /            -----------
-    \                                   \  /
-     \    -----------------     -----------------------------
-      \-> | Beacon Missed | --> | Wait Association Response |
-          -----------------     -----------------------------
-                \                       ^
-                 \                      |
-                  \    -----------------------
+    \                    --------       \  /
+     \    ------------   | Wait |   -----------------------------
+      \-> | Scanning |-->|Beacon|-->| Wait Association Response |
+          ------------   --------   -----------------------------
+           ^ |  \                       ^
+           | |   \                      |
+            -     \    -----------------------
                    \-> | Wait Probe Response |
                        -----------------------
+
+  Unassociated (not depicted) is a transient state between Scanning and either
+  WaitBeacon or WaitProbeResponse
  */
 
 namespace ns3 {
@@ -62,6 +66,10 @@ StaWifiMac::GetTypeId (void)
                    TimeValue (Seconds (0.5)),
                    MakeTimeAccessor (&StaWifiMac::m_assocRequestTimeout),
                    MakeTimeChecker ())
+    .AddAttribute ("ScanningTimeout", "The interval to dwell on a channel while scanning",
+                   TimeValue (MilliSeconds (120)),
+                   MakeTimeAccessor (&StaWifiMac::m_scanningTimeout),
+                   MakeTimeChecker ())
     .AddAttribute ("MaxMissedBeacons",
                    "Number of beacons which much be consecutively missed before "
                    "we attempt to restart association.",
@@ -83,14 +91,19 @@ StaWifiMac::GetTypeId (void)
     .AddTraceSource ("DeAssoc", "Association with an access point lost.",
                      MakeTraceSourceAccessor (&StaWifiMac::m_deAssocLogger),
                      "ns3::Mac48Address::TracedCallback")
+    .AddTraceSource ("BeaconArrival",
+                     "Time that beacons arrive from my AP while associated",
+                     MakeTraceSourceAccessor (&StaWifiMac::m_beaconArrival),
+                     "ns3::Time::TracedValueCallback")
   ;
   return tid;
 }
 
 StaWifiMac::StaWifiMac ()
-  : m_state (BEACON_MISSED),
+  : m_state (SCANNING),
     m_probeRequestEvent (),
     m_assocRequestEvent (),
+    m_waitBeaconEvent (),
     m_beaconWatchdogEnd (Seconds (0))
 {
   NS_LOG_FUNCTION (this);
@@ -103,6 +116,12 @@ StaWifiMac::StaWifiMac ()
 StaWifiMac::~StaWifiMac ()
 {
   NS_LOG_FUNCTION (this);
+}
+
+void
+StaWifiMac::DoInitialize (void)
+{
+  StartScanning ();
 }
 
 void
@@ -258,7 +277,7 @@ StaWifiMac::TryToEnsureAssociated (void)
          or until we get a probe response
        */
       break;
-    case BEACON_MISSED:
+    case UNASSOCIATED:
       /* we were associated but we missed a bunch of beacons
        * so we should assume we are not associated anymore.
        * We try to initiate a probe request now.
@@ -267,8 +286,23 @@ StaWifiMac::TryToEnsureAssociated (void)
       if (m_activeProbing)
         {
           SetState (WAIT_PROBE_RESP);
+          m_bestBeaconObserved.Clear ();
           SendProbeRequest ();
         }
+      else
+        {
+          if (m_waitBeaconEvent.IsRunning ())
+            {
+              m_waitBeaconEvent.Cancel ();
+            }
+          m_bestBeaconObserved.Clear ();
+          m_waitBeaconEvent = Simulator::Schedule (m_scanningTimeout,
+                                       &StaWifiMac::WaitBeaconTimeout, this);
+          SetState (WAIT_BEACON);
+        }
+      break;
+    case WAIT_BEACON:
+      /* Continue to wait and gather beacons */
       break;
     case WAIT_ASSOC_RESP:
       /* we have sent an assoc request so we do not need to
@@ -282,6 +316,9 @@ StaWifiMac::TryToEnsureAssociated (void)
          assoc resp. We wait until someone restarts an
          association with a given ssid.
        */
+      StartScanning ();
+      break;
+    case SCANNING:
       break;
     }
 }
@@ -299,7 +336,102 @@ StaWifiMac::ProbeRequestTimeout (void)
 {
   NS_LOG_FUNCTION (this);
   SetState (WAIT_PROBE_RESP);
-  SendProbeRequest ();
+  if (m_bestBeaconObserved.m_snr > 0)
+    {
+      NS_LOG_DEBUG ("one or more ProbeResponse received; selecting " << m_bestBeaconObserved.m_bssid);
+      SupportedRates rates = m_bestBeaconObserved.m_probeResp.GetSupportedRates ();
+      for (uint32_t i = 0; i < m_phy->GetNBssMembershipSelectors (); i++)
+        {
+         uint32_t selector = m_phy->GetBssMembershipSelector (i);
+         if (!rates.IsSupportedRate (selector))
+           {
+             return;
+           }
+        }
+      for (uint32_t i = 0; i < m_phy->GetNModes (); i++)
+        {
+          WifiMode mode = m_phy->GetMode (i);
+          uint8_t nss = 1; // Assume 1 spatial stream
+          if (rates.IsSupportedRate (mode.GetDataRate (m_phy->GetChannelWidth (), false, nss)))
+            {
+              m_stationManager->AddSupportedMode (m_bestBeaconObserved.m_bssid, mode);
+              if (rates.IsBasicRate (mode.GetDataRate (m_phy->GetChannelWidth (), false, nss)))
+                {
+                  m_stationManager->AddBasicMode (mode);
+                }
+            }
+        }
+
+      bool isShortPreambleEnabled = m_bestBeaconObserved.m_capabilities.IsShortPreamble ();
+      if (m_erpSupported)
+        {
+          bool isErpAllowed = false;
+          for (uint32_t i = 0; i < m_phy->GetNModes (); i++)
+              {
+                WifiMode mode = m_phy->GetMode (i);
+                if (mode.GetModulationClass () == WIFI_MOD_CLASS_ERP_OFDM && rates.IsSupportedRate (mode.GetDataRate (m_phy->GetChannelWidth (), false, 1)))
+                  {
+                    isErpAllowed = true;
+                    break;
+                  }
+              }
+          if (!isErpAllowed)
+            {
+              //disable short slot time and set cwMin to 31
+              SetSlot (MicroSeconds (20));
+              ConfigureContentionWindow (31, 1023);
+            }
+          else
+            {
+              ErpInformation erpInformation = m_bestBeaconObserved.m_probeResp.GetErpInformation ();
+              isShortPreambleEnabled &= !erpInformation.GetBarkerPreambleMode ();
+              if (m_stationManager->GetShortSlotTimeEnabled ())
+                {
+                  //enable short slot time
+                  SetSlot (MicroSeconds (9));
+                }
+              else
+                {
+                  //disable short slot time
+                  SetSlot (MicroSeconds (20));
+                }
+            }
+        }
+      m_stationManager->SetShortPreambleEnabled (isShortPreambleEnabled);
+      m_stationManager->SetShortSlotTimeEnabled (m_bestBeaconObserved.m_capabilities.IsShortSlotTime ());
+      SetBssid (m_bestBeaconObserved.m_bssid);
+      Time delay = MicroSeconds (m_bestBeaconObserved.m_probeResp.GetBeaconIntervalUs () * m_maxMissedBeacons);
+      RestartBeaconWatchdog (delay);
+      if (m_probeRequestEvent.IsRunning ())
+        {
+          m_probeRequestEvent.Cancel ();
+        }
+       SetState (WAIT_ASSOC_RESP);
+       SendAssociationRequest ();
+    }
+  else
+    {
+      NS_LOG_DEBUG ("no probe responses received; resend request");
+      SendProbeRequest ();
+    }
+}
+
+void
+StaWifiMac::WaitBeaconTimeout (void)
+{
+  NS_LOG_FUNCTION (this);
+  if (m_bestBeaconObserved.m_snr > 0)
+    {
+      NS_LOG_DEBUG ("Beacon found, selecting " << m_bestBeaconObserved.m_bssid);
+      SetBssid (m_bestBeaconObserved.m_bssid);
+      SetState (WAIT_ASSOC_RESP);
+      SendAssociationRequest ();
+    }
+  else
+    {
+      NS_LOG_DEBUG ("no beacons received; restart scanning");
+      StartScanning ();
+    }
 }
 
 void
@@ -316,9 +448,8 @@ StaWifiMac::MissedBeacons (void)
                                               &StaWifiMac::MissedBeacons, this);
       return;
     }
-  NS_LOG_DEBUG ("beacon missed");
-  SetState (BEACON_MISSED);
-  TryToEnsureAssociated ();
+  NS_LOG_DEBUG ("beacon watchdog expired; starting to scan again");
+  StartScanning ();
 }
 
 void
@@ -417,6 +548,33 @@ StaWifiMac::Enqueue (Ptr<const Packet> packet, Mac48Address to)
 }
 
 void
+StaWifiMac::StartScanning (void)
+{
+  NS_LOG_FUNCTION (this);
+  SetState (SCANNING);
+  //\todo: get the operational channels list, scan on each channel
+  NS_LOG_DEBUG ("Scanning channel(s)");
+  Simulator::Schedule (m_scanningTimeout, &StaWifiMac::ScanningTimeout, this);
+}
+
+void
+StaWifiMac::ScanningTimeout (void)
+{
+  NS_LOG_FUNCTION (this);
+  if (m_bestBeaconObserved.m_channelNumber == 0)
+    {
+      NS_LOG_DEBUG ("No beacons found when scanning; restart scanning");
+      StartScanning ();
+      return;
+    }
+  NS_LOG_DEBUG ("Stopping scanning; best beacon found on channel " << m_bestBeaconObserved.m_channelNumber);
+  m_phy->SetChannelNumber (m_bestBeaconObserved.m_channelNumber);
+  SetState (UNASSOCIATED);
+  TryToEnsureAssociated ();
+  return;
+}
+
+void
 StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
 {
   NS_LOG_FUNCTION (this << packet << hdr);
@@ -485,6 +643,10 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
       packet->RemoveHeader (beacon);
       CapabilityInformation capabilities = beacon.GetCapabilities ();
       bool goodBeacon = false;
+      SnrTag tag;
+      bool removed = packet->RemovePacketTag (tag);
+      NS_ASSERT (removed);
+      NS_LOG_DEBUG ("SnrTag value: " << tag.Get());
       if (GetSsid ().IsBroadcast ()
           || beacon.GetSsid ().IsEqual (GetSsid ()))
         {
@@ -517,6 +679,7 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
           Time delay = MicroSeconds (beacon.GetBeaconIntervalUs () * m_maxMissedBeacons);
           RestartBeaconWatchdog (delay);
           SetBssid (hdr->GetAddr3 ());
+          m_beaconArrival = Simulator::Now ();
           SupportedRates rates = beacon.GetSupportedRates ();
           for (uint32_t i = 0; i < m_phy->GetNModes (); i++)
             {
@@ -637,10 +800,21 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
           m_stationManager->SetShortPreambleEnabled (isShortPreambleEnabled);
           m_stationManager->SetShortSlotTimeEnabled (capabilities.IsShortSlotTime ());
         }
-      if (goodBeacon && m_state == BEACON_MISSED)
+      if (goodBeacon && m_state == UNASSOCIATED)
         {
           SetState (WAIT_ASSOC_RESP);
           SendAssociationRequest ();
+        }
+      if (goodBeacon && (m_state == SCANNING || m_state == WAIT_BEACON))
+        {
+          NS_LOG_DEBUG ("Beacon received while scanning");
+          if (m_bestBeaconObserved.m_snr < tag.Get ())
+            {
+              NS_LOG_DEBUG ("Beacon has highest SNR so far: " << tag.Get ());
+              m_bestBeaconObserved.m_channelNumber = m_phy->GetChannelNumber ();
+              m_bestBeaconObserved.m_snr = tag.Get ();
+              m_bestBeaconObserved.m_bssid = hdr->GetAddr3 ();
+            }
         }
       return;
     }
@@ -678,53 +852,19 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
                 }
             }
 
-          bool isShortPreambleEnabled = capabilities.IsShortPreamble ();
-          if (m_erpSupported)
+          SnrTag tag;
+          bool removed = packet->RemovePacketTag (tag);
+          NS_ASSERT (removed);
+          NS_LOG_DEBUG ("SnrTag value: " << tag.Get());
+          if (tag.Get () > m_bestBeaconObserved.m_snr)
             {
-              bool isErpAllowed = false;
-              for (uint32_t i = 0; i < m_phy->GetNModes (); i++)
-                {
-                  WifiMode mode = m_phy->GetMode (i);
-                  if (mode.GetModulationClass () == WIFI_MOD_CLASS_ERP_OFDM && rates.IsSupportedRate (mode.GetDataRate (m_phy->GetChannelWidth ())))
-                    {
-                      isErpAllowed = true;
-                      break;
-                    }
-                }
-              if (!isErpAllowed)
-                {
-                  //disable short slot time and set cwMin to 31
-                  SetSlot (MicroSeconds (20));
-                  ConfigureContentionWindow (31, 1023);
-                }
-              else
-                {
-                  ErpInformation erpInformation = probeResp.GetErpInformation ();
-                  isShortPreambleEnabled &= !erpInformation.GetBarkerPreambleMode ();
-                  if (m_stationManager->GetShortSlotTimeEnabled ())
-                    {
-                      //enable short slot time
-                      SetSlot (MicroSeconds (9));
-                    }
-                  else
-                    {
-                      //disable short slot time
-                      SetSlot (MicroSeconds (20));
-                    }
-                  ConfigureContentionWindow (15, 1023);
-                }
+              NS_LOG_DEBUG ("Save the Probe Response as a candidate");
+              m_bestBeaconObserved.m_channelNumber = m_phy->GetChannelNumber ();
+              m_bestBeaconObserved.m_snr = tag.Get ();
+              m_bestBeaconObserved.m_bssid = hdr->GetAddr3 ();
+              m_bestBeaconObserved.m_capabilities = capabilities;
+              m_bestBeaconObserved.m_probeResp = probeResp;
             }
-          m_stationManager->SetShortPreambleEnabled (isShortPreambleEnabled);
-          m_stationManager->SetShortSlotTimeEnabled (capabilities.IsShortSlotTime ());
-          SetBssid (hdr->GetAddr3 ());
-          Time delay = MicroSeconds (probeResp.GetBeaconIntervalUs () * m_maxMissedBeacons);
-          RestartBeaconWatchdog (delay);
-          if (m_probeRequestEvent.IsRunning ())
-            {
-              m_probeRequestEvent.Cancel ();
-            }
-          SetState (WAIT_ASSOC_RESP);
-          SendAssociationRequest ();
         }
       return;
     }
@@ -949,11 +1089,13 @@ StaWifiMac::SetState (MacState value)
   if (value == ASSOCIATED
       && m_state != ASSOCIATED)
     {
+      NS_LOG_DEBUG ("Associating to " << GetBssid ());
       m_assocLogger (GetBssid ());
     }
   else if (value != ASSOCIATED
            && m_state == ASSOCIATED)
     {
+      NS_LOG_DEBUG ("Disassociating from " << GetBssid ());
       m_deAssocLogger (GetBssid ());
     }
   m_state = value;
