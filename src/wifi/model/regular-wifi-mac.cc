@@ -146,7 +146,6 @@ RegularWifiMac::GetHtCapabilities (void) const
   if (m_htSupported)
     {
       capabilities.SetHtSupported (1);
-      capabilities.SetHtSupported (1);
       capabilities.SetLdpc (m_phy->GetLdpc ());
       capabilities.SetSupportedChannelWidth (m_phy->GetChannelWidth () >= 40);
       capabilities.SetShortGuardInterval20 (m_phy->GetShortGuardInterval ());

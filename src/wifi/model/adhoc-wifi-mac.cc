@@ -181,7 +181,6 @@ AdhocWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
       if (m_htSupported || m_vhtSupported || m_heSupported)
         {
           m_stationManager->AddAllSupportedMcs (from);
-          m_stationManager->AddStationHtCapabilities (from, GetHtCapabilities());
         }
       if (m_htSupported)
         {

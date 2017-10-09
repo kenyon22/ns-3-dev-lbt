@@ -719,7 +719,7 @@ ApWifiMac::SendOneBeacon (void)
     {
       beacon.SetEdcaParameterSet (GetEdcaParameterSet ());
     }
-  if (m_htSupported || m_vhtSupported)
+  if (m_htSupported || m_vhtSupported || m_heSupported)
     {
       beacon.SetHtCapabilities (GetHtCapabilities ());
       beacon.SetHtOperation (GetHtOperation ());
