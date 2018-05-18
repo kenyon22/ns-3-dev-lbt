@@ -75,6 +75,33 @@ YansWifiPhy::SetChannel (const Ptr<YansWifiChannel> channel)
 }
 
 void
+YansWifiPhy::AddOperationalChannel (uint8_t channelNumber)
+{
+  m_operationalChannelList.push_back (channelNumber);
+}
+
+std::vector<uint8_t>
+YansWifiPhy::GetOperationalChannelList () const
+{
+  std::vector<uint8_t> channelList;
+  channelList.push_back (GetChannelNumber ());
+  for (std::vector<uint8_t>::size_type i = 0; i != m_operationalChannelList.size (); i++)
+    {
+      if (m_operationalChannelList[i] != GetChannelNumber ())
+        {
+          channelList.push_back (GetChannelNumber ());
+        }
+    }
+  return channelList;
+}
+
+void
+YansWifiPhy::ClearOperationalChannelList ()
+{
+  m_operationalChannelList.clear ();
+}
+
+void
 YansWifiPhy::StartTx (Ptr<Packet> packet, WifiTxVector txVector, Time txDuration)
 {
   NS_LOG_DEBUG ("Start transmission: signal power before antenna gain=" << GetPowerDbm (txVector.GetTxPowerLevel ()) << "dBm");

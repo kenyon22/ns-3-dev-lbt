@@ -23,13 +23,38 @@
 #ifndef STA_WIFI_MAC_H
 #define STA_WIFI_MAC_H
 
+#include "ns3/traced-value.h"
 #include "regular-wifi-mac.h"
+#include "mgt-headers.h"
 
 namespace ns3  {
 
-class MgtAddBaRequestHeader;
 class SupportedRates;
 class CapabilityInformation;
+
+/**
+ * \ingroup wifi
+ *
+ * Struct to hold information regarding beacons observed
+ */
+struct BeaconInfo
+{
+  void Clear ()
+    {
+      m_channelNumber = 0;
+      m_bssid = Mac48Address ();
+      m_snr = 0;
+      m_activeProbing = false;
+      m_probeResp = MgtProbeResponseHeader ();
+      m_beacon = MgtBeaconHeader ();
+    };
+  uint32_t m_channelNumber;
+  Mac48Address m_bssid;
+  double m_snr;
+  bool m_activeProbing;
+  MgtProbeResponseHeader m_probeResp;
+  MgtBeaconHeader m_beacon;
+};
 
 /**
  * \ingroup wifi
@@ -73,7 +98,8 @@ private:
     ASSOCIATED,
     WAIT_PROBE_RESP,
     WAIT_ASSOC_RESP,
-    BEACON_MISSED,
+    WAIT_BEACON,
+    UNASSOCIATED,
     REFUSED
   };
 
@@ -178,15 +204,42 @@ private:
    */
   void PhyCapabilitiesChanged (void);
 
-  MacState m_state;            ///< MAC state
-  Time m_probeRequestTimeout;  ///< probe request timeout
-  Time m_assocRequestTimeout;  ///< assoc request timeout
-  EventId m_probeRequestEvent; ///< probe request event
-  EventId m_assocRequestEvent; ///< assoc request event
-  EventId m_beaconWatchdog;    ///< beacon watchdog
-  Time m_beaconWatchdogEnd;    ///< beacon watchdog end
-  uint32_t m_maxMissedBeacons; ///< maximum missed beacons
-  bool m_activeProbing;        ///< active probing
+  /**
+   * Start the scanning process to find the strongest beacon
+   */
+  void StartScanning (void);
+  /**
+   * Continue scanning process or terminate if no further channels to scan
+   */
+  void ScanningTimeout (void);
+
+  /**
+   * Start association process to the best AP observed after scanning
+   */
+  void DoAssociate (void);
+  /**
+   * Set associated AP information from beacon
+   * \param beacon received beacon
+   * \param addrFrom mac address of beacon sender
+   * \param addrSource mac address of beacon origin
+   */
+  void SetApInfo (MgtBeaconHeader beacon, Mac48Address addrFrom, Mac48Address addrSource);
+
+  void DoInitialize (void);
+
+  MacState m_state;                 ///< MAC state
+  Time m_probeRequestTimeout;       ///< probe request timeout
+  Time m_assocRequestTimeout;       ///< assoc request timeout
+  Time m_waitBeaconTimeout;         ///< passive scanning timeout
+  EventId m_probeRequestEvent;      ///< probe request event
+  EventId m_assocRequestEvent;      ///< assoc request event
+  EventId m_beaconWatchdog;         ///< beacon watchdog
+  EventId m_waitBeaconEvent;        ///< passive probe event
+  Time m_beaconWatchdogEnd;         ///< beacon watchdog end
+  uint32_t m_maxMissedBeacons;      ///< maximum missed beacons
+  bool m_activeProbing;             ///< active probing
+  BeaconInfo m_bestBeaconObserved;  ///< best beacon observed when scanning
+  std::vector<uint8_t> m_candidateChannels; ///< list of candidate channel for scanning
 
   TracedCallback<Mac48Address> m_assocLogger;   ///< assoc logger
   TracedCallback<Mac48Address> m_deAssocLogger; ///< deassoc logger
