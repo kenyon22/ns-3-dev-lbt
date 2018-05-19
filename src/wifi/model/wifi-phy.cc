@@ -1126,6 +1126,7 @@ WifiPhy::ConfigureStandard (WifiPhyStandard standard)
       // The user has configured either (or both) Frequency or ChannelNumber
       ConfigureChannelForStandard (standard);
     }
+  ConfigureDefaultOperationalChannelListForStandard (standard);
   switch (standard)
     {
     case WIFI_PHY_STANDARD_80211a:
@@ -1165,6 +1166,115 @@ WifiPhy::ConfigureStandard (WifiPhyStandard standard)
     default:
       NS_ASSERT (false);
       break;
+    }
+}
+
+void
+WifiPhy::ConfigureDefaultOperationalChannelListForStandard (WifiPhyStandard standard)
+{
+  NS_LOG_FUNCTION (this);
+  switch (standard)
+    {
+      case WIFI_PHY_STANDARD_80211b:
+        for (uint8_t i = 1; i <= 14; ++i)
+          {
+            AddOperationalChannel (i);
+          }
+        break;
+      case WIFI_PHY_STANDARD_80211g:
+      case WIFI_PHY_STANDARD_80211n_2_4GHZ:
+      case WIFI_PHY_STANDARD_80211ax_2_4GHZ:
+        for (uint8_t i = 1; i <= 13; ++i)
+          {
+            AddOperationalChannel (i);
+          }
+        break;
+      break;
+      case WIFI_PHY_STANDARD_80211a:
+        // 5GHz 20Mhz width
+        for (uint8_t i = 36; i <= 165; i += 4)
+          {
+            AddOperationalChannel (i);
+            if (i == 144)
+              {
+                ++i;
+              }
+          }
+        break;
+      case WIFI_PHY_STANDARD_holland:
+      case WIFI_PHY_STANDARD_80211n_5GHZ:
+        // 5GHz 20Mhz width
+        for (uint8_t i = 36; i <= 165; i += 4)
+          {
+            AddOperationalChannel (i);
+            if (i == 144)
+              {
+                ++i;
+              }
+          }
+        // 5GHz 40Mhz width
+        for (uint8_t i = 38; i <= 159; i += 8)
+          {
+            AddOperationalChannel (i);
+            if (i == 62)
+              {
+                i += 2;
+              }
+            if (i == 142)
+              {
+                ++i;
+              }
+          }
+        break;
+      break;
+      case WIFI_PHY_STANDARD_80211ac:
+      case WIFI_PHY_STANDARD_80211ax_5GHZ:
+        // 5GHz 20Mhz width
+        for (uint8_t i = 36; i <= 165; i += 4)
+          {
+            AddOperationalChannel (i);
+            if (i == 144)
+              {
+                ++i;
+              }
+          }
+        // 5GHz 40Mhz width
+        for (uint8_t i = 38; i <= 159; i += 8)
+          {
+            AddOperationalChannel (i);
+            if (i == 62)
+              {
+                i += 2;
+              }
+            else if (i == 142)
+              {
+                ++i;
+              }
+          }
+        // 5GHz 80Mhz width
+        for (uint8_t i = 42; i <= 155; i += 16)
+          {
+            AddOperationalChannel (i);
+            if (i == 138)
+              {
+                ++i;
+              }
+          }
+        // 5GHz 160Mhz width
+        AddOperationalChannel (50);
+        AddOperationalChannel (114);
+        break;
+      case WIFI_PHY_STANDARD_80211_10MHZ:
+        for (uint8_t i = 172; i <= 184; i += 2)
+          {
+            AddOperationalChannel (i);
+          }
+        break;
+      case WIFI_PHY_STANDARD_80211_5MHZ:
+      case WIFI_PHY_STANDARD_UNSPECIFIED:
+      default:
+        AddOperationalChannel (0);
+        break;
     }
 }
 

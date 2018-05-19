@@ -1605,6 +1605,14 @@ private:
    * \param standard the Wi-Fi standard
    */
   void ConfigureChannelForStandard (WifiPhyStandard standard);
+  /**
+   * Configure the default operational channel list for different
+   * Wi-Fi standard. This method is called when ConfigureStandard() is
+   * called.
+   *
+   * \param standard the Wi-Fi standard
+   */
+  void ConfigureDefaultOperationalChannelListForStandard  (WifiPhyStandard standard);
 
   /**
    * Look for channel number matching the frequency and width
