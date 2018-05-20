@@ -90,6 +90,12 @@ private:
    */
   bool GetActiveProbing (void) const;
 
+  /**
+   * Handle a received packet.
+   *
+   * \param packet the received packet
+   * \param hdr the mac header of the received packet
+   */
   void Receive (Ptr<Packet> packet, const WifiMacHeader *hdr);
 
   /**
