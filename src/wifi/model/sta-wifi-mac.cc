@@ -595,6 +595,7 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
 void
 StaWifiMac::UpdateApInfoFromBeacon (MgtBeaconHeader beacon, Mac48Address apAddr, Mac48Address bssid)
 {
+  NS_LOG_FUNCTION (this << beacon << apAddr << bssid);
   SetBssid (bssid);
   CapabilityInformation capabilities = beacon.GetCapabilities ();
   SupportedRates rates = beacon.GetSupportedRates ();
@@ -719,6 +720,7 @@ StaWifiMac::UpdateApInfoFromBeacon (MgtBeaconHeader beacon, Mac48Address apAddr,
 void
 StaWifiMac::UpdateApInfoFromProbeResp (MgtProbeResponseHeader probeResp, Mac48Address apAddr, Mac48Address bssid)
 {
+  NS_LOG_FUNCTION (this << probeResp << apAddr << bssid);
   CapabilityInformation capabilities = probeResp.GetCapabilities ();
   SupportedRates rates = probeResp.GetSupportedRates ();
   for (uint8_t i = 0; i < m_phy->GetNBssMembershipSelectors (); i++)
@@ -787,6 +789,7 @@ StaWifiMac::UpdateApInfoFromProbeResp (MgtProbeResponseHeader probeResp, Mac48Ad
 void
 StaWifiMac::UpdateApInfoFromAssocResp (MgtAssocResponseHeader assocResp, Mac48Address apAddr)
 {
+  NS_LOG_FUNCTION (this << assocResp << apAddr);
   CapabilityInformation capabilities = assocResp.GetCapabilities ();
   SupportedRates rates = assocResp.GetSupportedRates ();
   bool isShortPreambleEnabled = capabilities.IsShortPreamble ();
