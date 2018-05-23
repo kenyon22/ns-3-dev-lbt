@@ -27,6 +27,7 @@
 #include "wifi-phy.h"
 #include "mac-low.h"
 #include "mgt-headers.h"
+#include "snr-tag.h"
 
 namespace ns3 {
 
@@ -41,9 +42,13 @@ StaWifiMac::GetTypeId (void)
     .SetParent<RegularWifiMac> ()
     .SetGroupName ("Wifi")
     .AddConstructor<StaWifiMac> ()
-    .AddAttribute ("ProbeRequestTimeout", "The interval between two consecutive probe request attempts.",
+    .AddAttribute ("ProbeRequestTimeout", "The duration to actively probing the channel.",
                    TimeValue (Seconds (0.05)),
                    MakeTimeAccessor (&StaWifiMac::m_probeRequestTimeout),
+                   MakeTimeChecker ())
+    .AddAttribute ("WaitBeaconTimeout", "The duration to dwell on a channel while passively scanning for beacon",
+                   TimeValue (MilliSeconds (120)),
+                   MakeTimeAccessor (&StaWifiMac::m_waitBeaconTimeout),
                    MakeTimeChecker ())
     .AddAttribute ("AssocRequestTimeout", "The interval between two consecutive association request attempts.",
                    TimeValue (Seconds (0.5)),
@@ -76,6 +81,7 @@ StaWifiMac::GetTypeId (void)
 
 StaWifiMac::StaWifiMac ()
   : m_state (BEACON_MISSED),
+    m_waitBeaconEvent (),
     m_probeRequestEvent (),
     m_assocRequestEvent (),
     m_beaconWatchdogEnd (Seconds (0))
@@ -87,6 +93,13 @@ StaWifiMac::StaWifiMac ()
   SetTypeOfStation (STA);
 }
 
+void
+StaWifiMac::DoInitialize (void)
+{
+  NS_LOG_FUNCTION (this);
+  StartScanning ();
+}
+
 StaWifiMac::~StaWifiMac ()
 {
   NS_LOG_FUNCTION (this);
@@ -96,15 +109,12 @@ void
 StaWifiMac::SetActiveProbing (bool enable)
 {
   NS_LOG_FUNCTION (this << enable);
-  if (enable)
-    {
-      Simulator::ScheduleNow (&StaWifiMac::TryToEnsureAssociated, this);
-    }
-  else
-    {
-      m_probeRequestEvent.Cancel ();
-    }
   m_activeProbing = enable;
+  if (m_state == WAIT_PROBE_RESP || m_state == WAIT_BEACON)
+    {
+      NS_LOG_DEBUG ("STA is still scanning, reset scanning process");
+      StartScanning ();
+    }
 }
 
 bool
@@ -157,13 +167,6 @@ StaWifiMac::SendProbeRequest (void)
   //use the DCF for these regardless of whether we have a QoS
   //association or not.
   m_dca->Queue (packet, hdr);
-
-  if (m_probeRequestEvent.IsRunning ())
-    {
-      m_probeRequestEvent.Cancel ();
-    }
-  m_probeRequestEvent = Simulator::Schedule (m_probeRequestTimeout,
-                                             &StaWifiMac::ProbeRequestTimeout, this);
 }
 
 void
@@ -255,17 +258,18 @@ StaWifiMac::TryToEnsureAssociated (void)
          or until we get a probe response
        */
       break;
+    case WAIT_BEACON:
+      /* we have initiated passive scanning, continue to wait
+         and gather beacons
+       */
+      break;
     case BEACON_MISSED:
       /* we were associated but we missed a bunch of beacons
        * so we should assume we are not associated anymore.
-       * We try to initiate a probe request now.
+       * We try to initiate a scan now.
        */
       m_linkDown ();
-      if (GetActiveProbing ())
-        {
-          SetState (WAIT_PROBE_RESP);
-          SendProbeRequest ();
-        }
+      StartScanning ();
       break;
     case WAIT_ASSOC_RESP:
       /* we have sent an association request so we do not need to
@@ -284,19 +288,74 @@ StaWifiMac::TryToEnsureAssociated (void)
 }
 
 void
+StaWifiMac::StartScanning (void)
+{
+  NS_LOG_FUNCTION (this);
+  m_candidateAps.clear ();
+  if (m_probeRequestEvent.IsRunning ())
+    {
+      m_probeRequestEvent.Cancel ();
+    }
+  if (m_waitBeaconEvent.IsRunning ())
+    {
+      m_waitBeaconEvent.Cancel ();
+    }
+  if (GetActiveProbing ())
+    {
+      SetState (WAIT_PROBE_RESP);
+      SendProbeRequest ();
+      m_probeRequestEvent = Simulator::Schedule (m_probeRequestTimeout,
+                                                 &StaWifiMac::ScanningTimeout,
+                                                 this);
+    }
+  else
+    {
+      SetState (WAIT_BEACON);
+      m_waitBeaconEvent = Simulator::Schedule (m_waitBeaconTimeout,
+                                               &StaWifiMac::ScanningTimeout,
+                                               this);
+    }
+}
+
+void
+StaWifiMac::ScanningTimeout (void)
+{
+  NS_LOG_FUNCTION (this);
+  if (!m_candidateAps.empty ())
+    {
+      ApInfo bestAp = m_candidateAps.front();
+      m_candidateAps.erase(m_candidateAps.begin ());
+      NS_LOG_DEBUG ("Attempting to associate with BSSID " << bestAp.m_bssid);
+      uint64_t beaconInterval;
+      if (bestAp.m_activeProbing)
+        {
+          UpdateApInfoFromProbeResp (bestAp.m_probeResp, bestAp.m_apAddr, bestAp.m_bssid);
+          beaconInterval = bestAp.m_probeResp.GetBeaconIntervalUs ();
+        }
+      else
+        {
+          UpdateApInfoFromBeacon (bestAp.m_beacon, bestAp.m_apAddr, bestAp.m_bssid);
+          beaconInterval = bestAp.m_beacon.GetBeaconIntervalUs ();
+        }
+
+      Time delay = MicroSeconds (beaconInterval * m_maxMissedBeacons);
+      RestartBeaconWatchdog (delay);
+      SetState (WAIT_ASSOC_RESP);
+      SendAssociationRequest (false);
+    }
+  else
+    {
+      NS_LOG_DEBUG ("Exhausted list of candidate AP; restart scanning");
+      StartScanning ();
+    }
+}
+
+void
 StaWifiMac::AssocRequestTimeout (void)
 {
   NS_LOG_FUNCTION (this);
   SetState (WAIT_ASSOC_RESP);
   SendAssociationRequest (false);
-}
-
-void
-StaWifiMac::ProbeRequestTimeout (void)
-{
-  NS_LOG_FUNCTION (this);
-  SetState (WAIT_PROBE_RESP);
-  SendProbeRequest ();
 }
 
 void
@@ -485,6 +544,10 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
       CapabilityInformation capabilities = beacon.GetCapabilities ();
       NS_ASSERT (capabilities.IsEss ());
       bool goodBeacon = false;
+      SnrTag snrTag;
+      bool removed = packet->RemovePacketTag (snrTag);
+      NS_ASSERT (removed);
+      NS_LOG_DEBUG ("SnrTag value: " << snrTag.Get());
       if (GetSsid ().IsBroadcast ()
           || beacon.GetSsid ().IsEqual (GetSsid ()))
         {
@@ -512,17 +575,22 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
           NS_LOG_LOGIC ("Beacon is not for us");
           goodBeacon = false;
         }
-      if (goodBeacon)
+      if (goodBeacon && m_state == ASSOCIATED)
         {
           Time delay = MicroSeconds (beacon.GetBeaconIntervalUs () * m_maxMissedBeacons);
           RestartBeaconWatchdog (delay);
           UpdateApInfoFromBeacon (beacon, hdr->GetAddr2 (), hdr->GetAddr3 ());
         }
-      if (goodBeacon && m_state == BEACON_MISSED)
+      if (goodBeacon && m_state == WAIT_BEACON)
         {
-          SetState (WAIT_ASSOC_RESP);
-          NS_LOG_DEBUG ("Good beacon received: send association request");
-          SendAssociationRequest (false);
+          NS_LOG_DEBUG ("Beacon received while scanning");
+          ApInfo apInfo;
+          apInfo.m_apAddr = hdr->GetAddr2 ();
+          apInfo.m_bssid = hdr->GetAddr3 ();
+          apInfo.m_activeProbing = false;
+          apInfo.m_snr = snrTag.Get ();
+          apInfo.m_beacon = beacon;
+          UpdateCandidateApList (apInfo);
         }
       return;
     }
@@ -538,15 +606,17 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
               NS_LOG_DEBUG ("Probe response is not for our SSID");
               return;
             }
-          UpdateApInfoFromProbeResp (probeResp, hdr->GetAddr2 (), hdr->GetAddr3 ());
-          Time delay = MicroSeconds (probeResp.GetBeaconIntervalUs () * m_maxMissedBeacons);
-          RestartBeaconWatchdog (delay);
-          if (m_probeRequestEvent.IsRunning ())
-            {
-              m_probeRequestEvent.Cancel ();
-            }
-          SetState (WAIT_ASSOC_RESP);
-          SendAssociationRequest (false);
+          SnrTag snrTag;
+          bool removed = packet->RemovePacketTag (snrTag);
+          NS_ASSERT (removed);
+          NS_LOG_DEBUG ("SnrTag value: " << snrTag.Get());
+          ApInfo apInfo;
+          apInfo.m_apAddr = hdr->GetAddr2 ();
+          apInfo.m_bssid = hdr->GetAddr3 ();
+          apInfo.m_activeProbing = true;
+          apInfo.m_snr = snrTag.Get ();
+          apInfo.m_probeResp = probeResp;
+          UpdateCandidateApList (apInfo);
         }
       return;
     }
@@ -580,7 +650,14 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
           else
             {
               NS_LOG_DEBUG ("association refused");
-              SetState (REFUSED);
+              if (m_candidateAps.empty ())
+                {
+                  SetState (REFUSED);
+                }
+              else
+                {
+                  ScanningTimeout ();
+                }
             }
         }
       return;
@@ -590,6 +667,32 @@ StaWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
   //other frames. Specifically, this will handle Block Ack-related
   //Management Action frames.
   RegularWifiMac::Receive (packet, hdr);
+}
+
+void
+StaWifiMac::UpdateCandidateApList (ApInfo newApInfo)
+{
+  NS_LOG_FUNCTION (this);
+  // Remove duplicate ApInfo entry
+  for (std::vector<ApInfo>::iterator i = m_candidateAps.begin(); i != m_candidateAps.end(); ++i)
+    {
+      if (newApInfo.m_bssid == (*i).m_bssid)
+        {
+          m_candidateAps.erase(i);
+          break;
+        }
+    }
+  // Insert before the entry with lower SNR
+  for (std::vector<ApInfo>::iterator i = m_candidateAps.begin(); i != m_candidateAps.end(); ++i)
+    {
+      if (newApInfo.m_snr > (*i).m_snr)
+        {
+          m_candidateAps.insert (i, newApInfo);
+          return;
+        }
+    }
+  // If new ApInfo is the lowest, insert at back
+  m_candidateAps.push_back(newApInfo);
 }
 
 void
