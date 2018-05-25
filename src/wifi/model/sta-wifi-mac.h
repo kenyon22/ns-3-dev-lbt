@@ -59,12 +59,12 @@ struct ApInfo
    ---------       --------------                           |      /      -----------
       |              |   /------------------------------\   |     /
       \              v   v                              |   v    /
-       \    -----------------     ---------------     -----------------------------
-        \-> | Beacon Missed | --> | Wait Beacon | --> | Wait Association Response |
-            -----------------     ---------------     -----------------------------
-                  \                  ^     ^ |              ^
-                   \                 |     | |              |
-                    \                v      -               /
+       \    ----------------     ---------------     -----------------------------
+        \-> | Unassociated | --> | Wait Beacon | --> | Wait Association Response |
+            ----------------     ---------------     -----------------------------
+                  \                  ^     ^ |              ^    ^ |
+                   \                 |     | |              |    | |
+                    \                v      -               /     -
                      \    -----------------------          /
                       \-> | Wait Probe Response | --------/
                           -----------------------
@@ -76,10 +76,24 @@ struct ApInfo
  * Notes:
  * 1. The state 'Start' is not included in #MacState and only used
  *    for illustration purpose.
- * 2. The transition from Wait Association Response to Beacon Missed
+ * 2. The Unassociated state is a transient state before STA starts the
+ *    scanning procedure which moves it into either Wait Beacon or Wait
+ *    Probe Response, based on whether passive or active scanning is
+ *    selected.
+ * 3. In Wait Beacon and Wait Probe Response, STA is gathering beacon or
+ *    probe response packets from APs, resulted in a list of candidate AP.
+ *    After the respective timeout, it then tries to associate to the best
+ *    AP (i.e., best SNR).  STA will switch between the two states and
+ *    restart the scanning procedure if SetActiveProbing() called.
+ * 4. In the case when AP responded to STA's association request with a
+ *    refusal, STA will try to associate to the next best AP until the list
+ *    of candidate AP is exhausted which sends STA to Refused state.
+ *    - Note that this behavior is not currently tested since ns-3 does not
+  *     implement association refusal at present.
+ * 5. The transition from Wait Association Response to Beacon Missed
  *    occurs if an association request fails without explicit
  *    refusal (i.e., the AP fails to respond).
- * 3. The transition from Associated to Wait Association Response
+ * 6. The transition from Associated to Wait Association Response
  *    occurs when STA's PHY capabilities changed. In this state, STA
  *    tries to reassociate with the previously associated AP.
  */
@@ -121,7 +135,7 @@ private:
     WAIT_BEACON,
     WAIT_PROBE_RESP,
     WAIT_ASSOC_RESP,
-    BEACON_MISSED,
+    UNASSOCIATED,
     REFUSED
   };
 
@@ -284,6 +298,10 @@ private:
   uint32_t m_maxMissedBeacons; ///< maximum missed beacons
   bool m_activeProbing;        ///< active probing
   std::vector<ApInfo> m_candidateAps; ///< list of candidate APs to associate
+  // Note: std::multiset<ApInfo> might be a candidate container to implement
+  // this sorted list, but we are using a std::vector because we want to sort
+  // based on SNR but find duplicates based on BSSID, and in practice this
+  // candidate vector should not be too large.
 
   TracedCallback<Mac48Address> m_assocLogger;   ///< assoc logger
   TracedCallback<Mac48Address> m_deAssocLogger; ///< deassoc logger

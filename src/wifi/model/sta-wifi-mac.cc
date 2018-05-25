@@ -80,7 +80,7 @@ StaWifiMac::GetTypeId (void)
 }
 
 StaWifiMac::StaWifiMac ()
-  : m_state (BEACON_MISSED),
+  : m_state (UNASSOCIATED),
     m_waitBeaconEvent (),
     m_probeRequestEvent (),
     m_assocRequestEvent (),
@@ -263,7 +263,7 @@ StaWifiMac::TryToEnsureAssociated (void)
          and gather beacons
        */
       break;
-    case BEACON_MISSED:
+    case UNASSOCIATED:
       /* we were associated but we missed a bunch of beacons
        * so we should assume we are not associated anymore.
        * We try to initiate a scan now.
@@ -373,7 +373,7 @@ StaWifiMac::MissedBeacons (void)
       return;
     }
   NS_LOG_DEBUG ("beacon missed");
-  SetState (BEACON_MISSED);
+  SetState (UNASSOCIATED);
   TryToEnsureAssociated ();
 }
 
