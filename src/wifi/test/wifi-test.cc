@@ -1517,13 +1517,16 @@ Bug2831TestCase::DoRun (void)
 /**
  * Make sure that Wifi STA is correctly associating to the best AP (i.e.,
  * nearest from STA). We consider 3 AP and 1 STA. This test case consisted of
- * two sub tests:
+ * three sub tests:
  *   - The best AP sends its beacon later than the other APs. STA is expected
  *     to associate to the best AP.
+ *   - The STA is using active scanning instead of passive, the rest of the
+ *     APs works normally. STA is expected to associate to the best AP
  *   - The nearest AP is turned off after sending beacon and while STA is
  *     still scanning. STA is expected to associate to the second best AP.
  *
  * See \bugid{2399}
+ * \todo Add explicit association refusal test if ns-3 implemented it.
  */
 
 class StaWifiMacScanningTestCase : public TestCase
@@ -1553,9 +1556,10 @@ private:
   /**
    * Setup test
    * \param nearestApBeaconGeneration set BeaconGeneration attribute of the nearest AP
+   * \param staActiveProbe set ActiveProbing attribute of the STA
    * \return node container containing all nodes
    */
-  NodeContainer Setup (bool nearestApBeaconGeneration);
+  NodeContainer Setup (bool nearestApBeaconGeneration, bool staActiveProbe);
 
   Mac48Address m_associatedApBssid; ///< Associated AP's bssid
 };
@@ -1592,7 +1596,7 @@ StaWifiMacScanningTestCase::TurnApOff (Ptr<Node> apNode)
 }
 
 NodeContainer
-StaWifiMacScanningTestCase::Setup (bool nearestApBeaconGeneration)
+StaWifiMacScanningTestCase::Setup (bool nearestApBeaconGeneration, bool staActiveProbe)
 {
   NodeContainer apNodes;
   apNodes.Create (2);
@@ -1618,7 +1622,8 @@ StaWifiMacScanningTestCase::Setup (bool nearestApBeaconGeneration)
   apDeviceNearest = wifi.Install (phy, mac, apNodeNearest);
 
   NetDeviceContainer staDevice;
-  mac.SetType ("ns3::StaWifiMac");
+  mac.SetType ("ns3::StaWifiMac",
+               "ActiveProbing", BooleanValue (staActiveProbe));
   staDevice = wifi.Install (phy, mac, staNode);
 
   MobilityHelper mobility;
@@ -1644,7 +1649,7 @@ void
 StaWifiMacScanningTestCase::DoRun (void)
 {
   {
-    NodeContainer nodes = Setup (false);
+    NodeContainer nodes = Setup (false, false);
     Ptr<Node> nearestAp = nodes.Get (2);
     Mac48Address nearestApAddr = DynamicCast<WifiNetDevice> (nearestAp->GetDevice (0))->GetMac ()->GetAddress ();
 
@@ -1656,9 +1661,20 @@ StaWifiMacScanningTestCase::DoRun (void)
 
     NS_TEST_ASSERT_MSG_EQ (m_associatedApBssid, nearestApAddr, "STA is associated to the wrong AP");
   }
+  {
+    NodeContainer nodes = Setup (true, true);
+    Ptr<Node> nearestAp = nodes.Get (2);
+    Mac48Address nearestApAddr = DynamicCast<WifiNetDevice> (nearestAp->GetDevice (0))->GetMac ()->GetAddress ();
+
+    Simulator::Stop (Seconds (0.2));
+    Simulator::Run ();
+    Simulator::Destroy ();
+
+    NS_TEST_ASSERT_MSG_EQ (m_associatedApBssid, nearestApAddr, "STA is associated to the wrong AP");
+  }
   m_associatedApBssid = Mac48Address ();
   {
-    NodeContainer nodes = Setup (true);
+    NodeContainer nodes = Setup (true, false);
     Ptr<Node> nearestAp = nodes.Get (2);
     Mac48Address secondNearestApAddr = DynamicCast<WifiNetDevice> (nodes.Get (1)->GetDevice (0))->GetMac ()->GetAddress ();
 
