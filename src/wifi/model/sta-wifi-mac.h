@@ -83,19 +83,21 @@ struct ApInfo
  * 3. In Wait Beacon and Wait Probe Response, STA is gathering beacon or
  *    probe response packets from APs, resulted in a list of candidate AP.
  *    After the respective timeout, it then tries to associate to the best
- *    AP (i.e., best SNR).  STA will switch between the two states and
+ *    AP (i.e., best SNR). STA will switch between the two states and
  *    restart the scanning procedure if SetActiveProbing() called.
  * 4. In the case when AP responded to STA's association request with a
  *    refusal, STA will try to associate to the next best AP until the list
  *    of candidate AP is exhausted which sends STA to Refused state.
  *    - Note that this behavior is not currently tested since ns-3 does not
   *     implement association refusal at present.
- * 5. The transition from Wait Association Response to Beacon Missed
+ * 5. The transition from Wait Association Response to Unassociated
  *    occurs if an association request fails without explicit
  *    refusal (i.e., the AP fails to respond).
  * 6. The transition from Associated to Wait Association Response
  *    occurs when STA's PHY capabilities changed. In this state, STA
  *    tries to reassociate with the previously associated AP.
+ * 7. The transition from Associated to Unassociated occurs if the number
+ *    of missed beacons exceeds the threshold.
  */
 class StaWifiMac : public RegularWifiMac
 {
