@@ -32,6 +32,7 @@ class MacRxMiddle;
 class MacTxMiddle;
 class ChannelAccessManager;
 class ExtendedCapabilities;
+class ErrorModel;
 
 /**
  * \brief base class for all MAC-level wifi objects.
@@ -281,6 +282,15 @@ public:
   void SetCompressedBlockAckTimeout (Time blockAckTimeout);
   Time GetCompressedBlockAckTimeout (void) const;
 
+  /**
+   * Attach a receive ErrorModel to the RegularWifiMac.
+   *
+   * The RegularWifiMac may optionally include an ErrorModel in
+   * the packet receive chain.
+   *
+   * \param em Ptr to the ErrorModel.
+   */
+  void SetReceiveErrorModel (Ptr<ErrorModel> em);
 
 protected:
   virtual void DoInitialize ();
@@ -704,6 +714,8 @@ private:
 
   bool m_shortSlotTimeSupported; ///< flag whether short slot time is supported
   bool m_rifsSupported; ///< flag whether RIFS is supported
+
+  Ptr<ErrorModel> m_receiveErrorModel; //!< Error model for receive packet events
 };
 
 } //namespace ns3

@@ -21,6 +21,7 @@
 #include "ns3/log.h"
 #include "ns3/pointer.h"
 #include "ns3/packet.h"
+#include "ns3/error-model.h"
 #include "regular-wifi-mac.h"
 #include "wifi-phy.h"
 #include "mac-rx-middle.h"
@@ -117,6 +118,7 @@ RegularWifiMac::DoDispose ()
 
   m_channelAccessManager->Dispose ();
   m_channelAccessManager = 0;
+  m_receiveErrorModel = 0;
 }
 
 void
@@ -923,6 +925,16 @@ RegularWifiMac::Receive (Ptr<Packet> packet, const WifiMacHeader *hdr)
       return;
     }
 
+  if (m_receiveErrorModel && m_receiveErrorModel->IsCorrupt (packet) )
+    {
+      //
+      // If we have an error model and it indicates that it is time to lose a
+      // corrupted packet, don't forward this packet up, let it go.
+      //
+      NotifyRxDrop (packet);
+      return;
+    }
+
   if (hdr->IsMgt () && hdr->IsAction ())
     {
       //There is currently only any reason for Management Action
@@ -1253,6 +1265,11 @@ RegularWifiMac::GetTypeId (void)
                    PointerValue (),
                    MakePointerAccessor (&RegularWifiMac::GetBKQueue),
                    MakePointerChecker<QosTxop> ())
+    .AddAttribute ("ReceiveErrorModel",
+                   "The receiver error model used to simulate packet loss",
+                   PointerValue (),
+                   MakePointerAccessor (&RegularWifiMac::m_receiveErrorModel),
+                   MakePointerChecker<ErrorModel> ())
     .AddTraceSource ("TxOkHeader",
                      "The header of successfully transmitted packet.",
                      MakeTraceSourceAccessor (&RegularWifiMac::m_txOkCallback),

@@ -26,6 +26,7 @@ public:
 
 private:
   void RxCallback (std::string context, Ptr<const Packet> p);
+  void RxDropCallback (std::string context, Ptr<const Packet> p);
   /**
    * Triggers the arrival of a burst of 1000 Byte-long packets in the source device
    * \param numPackets number of packets in burst (maximum: 255)
@@ -59,6 +60,12 @@ Bug2470TestCase::RxCallback (std::string context, Ptr<const Packet> p)
 }
 
 void
+Bug2470TestCase::RxDropCallback (std::string context, Ptr<const Packet> p)
+{
+  NS_LOG_DEBUG ("Packet UID " << p->GetUid () << " dropped");
+}
+
+void
 Bug2470TestCase::SendPacketBurst (uint8_t numPackets, Ptr<NetDevice> sourceDevice,
                                   Address& destination) const
 {
@@ -85,11 +92,19 @@ Bug2470TestCase::DoRun (void)
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("HtMcs7"));
 
+  // Create ListErrorModel to corrupt ADDBA req packet
+  Ptr<ListErrorModel> pem = CreateObject<ListErrorModel> ();
+  // ADDBA req is uid 15
+  std::list<uint32_t> sampleList;
+  sampleList.push_back (15);
+  pem->SetList (sampleList);
+
   WifiMacHelper mac;
   NetDeviceContainer apDevice, staDevice;
   mac.SetType ("ns3::ApWifiMac");
   apDevice = wifi.Install (phy, mac, wifiApNode);
-  mac.SetType ("ns3::StaWifiMac");
+  mac.SetType ("ns3::StaWifiMac",
+               "ReceiveErrorModel", PointerValue (pem));
   staDevice = wifi.Install (phy, mac, wifiStaNode);
 
   MobilityHelper mobility;
@@ -102,17 +117,8 @@ Bug2470TestCase::DoRun (void)
   mobility.Install (wifiApNode);
   mobility.Install (wifiStaNode);
 
-  /* Unblock when ErrorModel is implemented for WifiNetDevice
-  // Create ListErrorModel to corrupt ADDBA req packet
-  Ptr<ListErrorModel> pem = CreateObject<ListErrorModel> ();
-  // ADDBA req is uid 15
-  std::list<uint32_t> sampleList;
-  sampleList.push_back (15);
-  pem->SetList (sampleList);
-  staDevice.Get (0)->SetAttribute ("ReceiveErrorModel", PointerValue (pem));
-  */
-
   Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxBegin", MakeCallback (&Bug2470TestCase::RxCallback, this));
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacRxDrop", MakeCallback (&Bug2470TestCase::RxDropCallback, this));
 
   Simulator::Schedule (Seconds (0.5), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
 
