@@ -567,10 +567,13 @@ QosTxop::MissedAck (void)
         {
           m_txFailedCallback (m_currentHdr);
         }
-      if (GetAmpduExist (m_currentHdr.GetAddr1 ()) || m_currentHdr.IsQosData ())
+      uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
+      if (m_baManager->ExistsAgreementInState (m_currentHdr.GetAddr1 (), tid, OriginatorBlockAckAgreement::PENDING))
         {
-          uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
-
+          m_baManager->NotifyAgreementUnsuccessful (m_currentHdr.GetAddr1 (), tid);
+        }
+      else if (GetAmpduExist (m_currentHdr.GetAddr1 ()) || m_currentHdr.IsQosData ())
+        {
           if (GetBaAgreementExists (m_currentHdr.GetAddr1 (), tid))
             {
               //send Block ACK Request in order to shift WinStart at the receiver
