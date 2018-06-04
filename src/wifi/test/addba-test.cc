@@ -92,19 +92,21 @@ Bug2470TestCase::DoRun (void)
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("HtMcs7"));
 
+
+  WifiMacHelper mac;
+  NetDeviceContainer apDevice;
+  mac.SetType ("ns3::ApWifiMac");
+  apDevice = wifi.Install (phy, mac, wifiApNode);
+
+  NetDeviceContainer staDevice;
   // Create ListErrorModel to corrupt ADDBA req packet
   Ptr<ListErrorModel> pem = CreateObject<ListErrorModel> ();
   // ADDBA req is uid 15
   std::list<uint32_t> sampleList;
   sampleList.push_back (15);
   pem->SetList (sampleList);
-
-  WifiMacHelper mac;
-  NetDeviceContainer apDevice, staDevice;
-  mac.SetType ("ns3::ApWifiMac");
-  apDevice = wifi.Install (phy, mac, wifiApNode);
-  mac.SetType ("ns3::StaWifiMac",
-               "ReceiveErrorModel", PointerValue (pem));
+  phy.Set ("ReceiveErrorModel", PointerValue (pem));
+  mac.SetType ("ns3::StaWifiMac");
   staDevice = wifi.Install (phy, mac, wifiStaNode);
 
   MobilityHelper mobility;
@@ -118,7 +120,7 @@ Bug2470TestCase::DoRun (void)
   mobility.Install (wifiStaNode);
 
   Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxBegin", MakeCallback (&Bug2470TestCase::RxCallback, this));
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacRxDrop", MakeCallback (&Bug2470TestCase::RxDropCallback, this));
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxDrop", MakeCallback (&Bug2470TestCase::RxDropCallback, this));
 
   Simulator::Schedule (Seconds (0.5), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
 
