@@ -25,6 +25,7 @@ public:
   virtual void DoRun (void);
 
 private:
+  void TxCallback (std::string context, Ptr<const Packet> p);
   void RxCallback (std::string context, Ptr<const Packet> p);
   void RxDropCallback (std::string context, Ptr<const Packet> p);
   /**
@@ -34,15 +35,35 @@ private:
    * \param destination address of the destination device
    */
   void SendPacketBurst (uint8_t numPackets, Ptr<NetDevice> sourceDevice, Address& destination) const;
+  uint8_t m_receivedDataCount;
 };
 
 Bug2470TestCase::Bug2470TestCase ()
-  : TestCase ("Test case for Bug 2470")
+  : TestCase ("Test case for Bug 2470"),
+    m_receivedDataCount (0)
 {
 }
 
 Bug2470TestCase::~Bug2470TestCase ()
 {
+}
+
+void
+Bug2470TestCase::TxCallback (std::string context, Ptr<const Packet> p)
+{
+  Ptr<Packet> packet = p->Copy ();
+  WifiMacHeader hdr;
+  packet->RemoveHeader (hdr);
+  if (hdr.IsAction ())
+    {
+      WifiActionHeader actionHdr;
+      packet->RemoveHeader (actionHdr);
+      NS_LOG_DEBUG ("Sending packet UID " << packet->GetUid () << "; BA action " << actionHdr);
+    }
+  else if (hdr.HasData ())
+    {
+      NS_LOG_DEBUG ("Sending packet UID " << packet->GetUid () << " received");
+    }
 }
 
 void
@@ -55,7 +76,12 @@ Bug2470TestCase::RxCallback (std::string context, Ptr<const Packet> p)
     {
       WifiActionHeader actionHdr;
       packet->RemoveHeader (actionHdr);
-      NS_LOG_DEBUG ("Packet UID " << packet->GetUid () << "; BA action " << actionHdr);
+      NS_LOG_DEBUG ("Receiving packet UID " << packet->GetUid () << "; BA action " << actionHdr);
+    }
+  else if (hdr.HasData ())
+    {
+      NS_LOG_DEBUG ("Receiving packet UID " << packet->GetUid () << " received");
+      m_receivedDataCount++;
     }
 }
 
@@ -119,15 +145,18 @@ Bug2470TestCase::DoRun (void)
   mobility.Install (wifiApNode);
   mobility.Install (wifiStaNode);
 
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin", MakeCallback (&Bug2470TestCase::TxCallback, this));
   Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxBegin", MakeCallback (&Bug2470TestCase::RxCallback, this));
   Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxDrop", MakeCallback (&Bug2470TestCase::RxDropCallback, this));
 
   Simulator::Schedule (Seconds (0.5), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
+  Simulator::Schedule (Seconds (0.8), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
 
-  Simulator::Stop (Seconds (0.8));
+  Simulator::Stop (Seconds (1.0));
   Simulator::Run ();
 
   Simulator::Destroy ();
+  NS_LOG_DEBUG ("num of received packet " << +m_receivedDataCount);
 }
 
 

@@ -108,7 +108,7 @@ QosTxop::DoDispose (void)
 bool
 QosTxop::GetBaAgreementExists (Mac48Address address, uint8_t tid) const
 {
-  return m_baManager->ExistsAgreement (address, tid);
+  return m_baManager->ExistsAgreementInState (address, tid, OriginatorBlockAckAgreement::ESTABLISHED);
 }
 
 void
@@ -196,7 +196,8 @@ QosTxop::NotifyAccessGranted (void)
           m_currentPacketTimestamp = item->GetTimeStamp ();
           if (m_currentHdr.IsQosData () && !m_currentHdr.GetAddr1 ().IsBroadcast ()
               && m_stationManager->GetQosSupported (m_currentHdr.GetAddr1 ())
-              && !m_baManager->ExistsAgreement (m_currentHdr.GetAddr1 (), m_currentHdr.GetQosTid ())
+              && (!m_baManager->ExistsAgreement (m_currentHdr.GetAddr1 (), m_currentHdr.GetQosTid ())
+                  || m_baManager->ExistsAgreementInState (m_currentHdr.GetAddr1 (), m_currentHdr.GetQosTid (), OriginatorBlockAckAgreement::RESET))
               && SetupBlockAckIfNeeded ())
             {
               return;
@@ -570,7 +571,12 @@ QosTxop::MissedAck (void)
       uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
       if (m_baManager->ExistsAgreementInState (m_currentHdr.GetAddr1 (), tid, OriginatorBlockAckAgreement::PENDING))
         {
-          m_baManager->NotifyAgreementUnsuccessful (m_currentHdr.GetAddr1 (), tid);
+          NS_LOG_DEBUG ("No ADDBA reply after ack fail");
+          // Set agreement to NO_REPLY state and unblock, at this point the rest of the packets
+          // will be transmitted on normal MPDU
+          m_baManager->NotifyAgreementNoReply (m_currentHdr.GetAddr1 (), tid);
+          // Reset BA so the agreement will be created for the next packet after timeout
+          Simulator::Schedule (MilliSeconds (200), &QosTxop::ResetBa, this, m_currentHdr.GetAddr1 (), tid);
         }
       else if (GetAmpduExist (m_currentHdr.GetAddr1 ()) || m_currentHdr.IsQosData ())
         {
@@ -1569,6 +1575,21 @@ QosTxop::BaTxFailed (const WifiMacHeader &hdr)
     {
       m_txFailedCallback (m_currentHdr);
     }
+}
+
+void
+QosTxop::ResetBa (Mac48Address recipient, uint8_t tid)
+{
+  NS_LOG_FUNCTION (this << recipient << +tid);
+  NS_ASSERT (m_baManager->ExistsAgreementInState (recipient, tid, OriginatorBlockAckAgreement::NO_REPLY));
+  // I tried two method to reset BA agreement, the first one is to put it at a RESET state
+  // at the BlockAckManager::CreateAgreement function it will delete the old agreement and
+  // insert new one
+  m_baManager->NotifyAgreementReset (recipient, tid);
+  // Second method is to destroy the agreement at this point
+  // m_baManager->DestroyAgreement (recipient, tid);
+  // m_low->DestroyBlockAckAgreement (recipient, tid);
+  // Both does not resolve the bug
 }
 
 bool

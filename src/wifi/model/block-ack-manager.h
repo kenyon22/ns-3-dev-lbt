@@ -230,6 +230,8 @@ public:
    * a block ack setup.
    */
   void NotifyAgreementUnsuccessful (Mac48Address recipient, uint8_t tid);
+  void NotifyAgreementNoReply (Mac48Address recipient, uint8_t tid);
+  void NotifyAgreementReset (Mac48Address recipient, uint8_t tid);
   /**
    * \param recipient Address of peer station involved in block ack mechanism.
    * \param tid Traffic ID of transmitted packet.

@@ -533,6 +533,7 @@ private:
    * \returns the TXOP fragment offset
    */
   uint32_t GetTxopFragmentOffset (uint32_t fragmentNumber) const;
+  void ResetBa (Mac48Address recipient, uint8_t tid);
 
   void DoDispose (void);
   void DoInitialize (void);

@@ -100,6 +100,8 @@ public:
     PENDING,
     ESTABLISHED,
     INACTIVE,
+    NO_REPLY,
+    RESET,
     UNSUCCESSFUL
   };
   /**
@@ -136,6 +138,8 @@ public:
    *         false otherwise
    */
   bool IsUnsuccessful (void) const;
+  bool IsNoReply (void) const;
+  bool IsReset (void) const;
   /**
    * Notifies a packet's transmission with ack policy Block Ack.
    *

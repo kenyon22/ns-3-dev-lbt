@@ -70,6 +70,18 @@ OriginatorBlockAckAgreement::IsUnsuccessful (void) const
   return (m_state == UNSUCCESSFUL) ? true : false;
 }
 
+bool
+OriginatorBlockAckAgreement::IsNoReply (void) const
+{
+  return (m_state == NO_REPLY) ? true : false;
+}
+
+bool
+OriginatorBlockAckAgreement::IsReset (void) const
+{
+  return (m_state == RESET) ? true : false;
+}
+
 void
 OriginatorBlockAckAgreement::NotifyMpduTransmission (uint16_t nextSeqNumber)
 {
