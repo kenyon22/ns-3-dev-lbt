@@ -230,7 +230,21 @@ public:
    * a block ack setup.
    */
   void NotifyAgreementUnsuccessful (Mac48Address recipient, uint8_t tid);
+  /**
+   * \param recipient Address of peer station involved in block ack mechanism.
+   * \param tid Traffic ID of transmitted packet.
+   *
+   * Marks an agreement after not receiving response to ADDBA request. During this state
+   * any packets in queue will be transmitted using normal MPDU. This also unblock
+   * recipient adress.
+   */
   void NotifyAgreementNoReply (Mac48Address recipient, uint8_t tid);
+  /**
+   * \param recipient Address of peer station involved in block ack mechanism.
+   * \param tid Traffic ID of transmitted packet.
+   *
+   * Set BA agreement to a transitory state to reset it after not receiving response to ADDBA request.
+   */
   void NotifyAgreementReset (Mac48Address recipient, uint8_t tid);
   /**
    * \param recipient Address of peer station involved in block ack mechanism.

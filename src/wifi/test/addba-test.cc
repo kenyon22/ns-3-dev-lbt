@@ -12,10 +12,37 @@
 #include "ns3/mgt-headers.h"
 #include "ns3/wifi-mac-header.h"
 #include "ns3/error-model.h"
+#include "ns3/boolean.h"
 
 NS_LOG_COMPONENT_DEFINE ("AddBaTest");
 
 using namespace ns3;
+
+//-----------------------------------------------------------------------------
+/**
+ * Make sure that the ADDBA handshake process is protected.
+ *
+ * The scenario considers an access point and a station and utilizes
+ * ReceiveListErrorModel to filter out received ADDBA request on STA or ADDBA
+ * response on AP. The AP sends 5 packets each 1000 bytes (thus generating BA
+ * agreement), 2 times during the test at 0.5s and 0.8s. The filtering process
+ * happens only at the first ADDBA request. We expect that the packets in queue
+ * after BA agreement fail are still sent with normal MPDU, and packets queued
+ * at 0.8s will be sent with AMPDU. This test consider 4 subtest scenario:
+ *
+ *   1. ADDBA request packets are blocked on receive at STA for 6 time (less
+ *      than SSRC)
+ *   2. ADDBA request packets are blocked on receive at STA for 7 time (equals
+ *      SSRC, triggering transmission failure at AP)
+ *   3. ADDBA response packets are blocked on receive at AP for 6 time (less
+ *      than SSRC)
+ *   4. ADDBA response packets are blocked on receive at STA for 7 time (equals
+ *      SSRC, STA stops retransmission of ADDBA response)
+ *
+ * All subtests expects 10 data packets received at STA.
+ *
+ * See \bugid{2470}
+ */
 
 class Bug2470TestCase : public TestCase
 {
@@ -25,9 +52,14 @@ public:
   virtual void DoRun (void);
 
 private:
-  void TxCallback (std::string context, Ptr<const Packet> p);
-  void RxCallback (std::string context, Ptr<const Packet> p);
+  // Will be removed
   void RxDropCallback (std::string context, Ptr<const Packet> p);
+  /**
+   * Callback when packet received at MAC layer
+   * \param context node context
+   * \param p the received packet
+   */
+  void RxCallback (std::string context, Ptr<const Packet> p);
   /**
    * Triggers the arrival of a burst of 1000 Byte-long packets in the source device
    * \param numPackets number of packets in burst (maximum: 255)
@@ -35,7 +67,14 @@ private:
    * \param destination address of the destination device
    */
   void SendPacketBurst (uint8_t numPackets, Ptr<NetDevice> sourceDevice, Address& destination) const;
-  uint8_t m_receivedDataCount;
+  /**
+   * Run subtest for this test suite
+   * \param apErrorModel ErrorModel used for AP
+   * \param staErrorModel ErrorModel used for STA
+   */
+  void RunSubtest (PointerValue apErrorModel, PointerValue staErrorModel);
+
+  uint8_t m_receivedDataCount; ///< Count received data on STA
 };
 
 Bug2470TestCase::Bug2470TestCase ()
@@ -49,36 +88,12 @@ Bug2470TestCase::~Bug2470TestCase ()
 }
 
 void
-Bug2470TestCase::TxCallback (std::string context, Ptr<const Packet> p)
-{
-  Ptr<Packet> packet = p->Copy ();
-  WifiMacHeader hdr;
-  packet->RemoveHeader (hdr);
-  if (hdr.IsAction ())
-    {
-      WifiActionHeader actionHdr;
-      packet->RemoveHeader (actionHdr);
-      NS_LOG_DEBUG ("Sending packet UID " << packet->GetUid () << "; BA action " << actionHdr);
-    }
-  else if (hdr.HasData ())
-    {
-      NS_LOG_DEBUG ("Sending packet UID " << packet->GetUid () << " received");
-    }
-}
-
-void
 Bug2470TestCase::RxCallback (std::string context, Ptr<const Packet> p)
 {
   Ptr<Packet> packet = p->Copy ();
   WifiMacHeader hdr;
   packet->RemoveHeader (hdr);
-  if (hdr.IsAction ())
-    {
-      WifiActionHeader actionHdr;
-      packet->RemoveHeader (actionHdr);
-      NS_LOG_DEBUG ("Receiving packet UID " << packet->GetUid () << "; BA action " << actionHdr);
-    }
-  else if (hdr.HasData ())
+  if (hdr.HasData ())
     {
       NS_LOG_DEBUG ("Receiving packet UID " << packet->GetUid () << " received");
       m_receivedDataCount++;
@@ -103,7 +118,7 @@ Bug2470TestCase::SendPacketBurst (uint8_t numPackets, Ptr<NetDevice> sourceDevic
 }
 
 void
-Bug2470TestCase::DoRun (void)
+Bug2470TestCase::RunSubtest (PointerValue apErrorModel, PointerValue staErrorModel)
 {
   NodeContainer wifiApNode, wifiStaNode;
   wifiApNode.Create (1);
@@ -118,20 +133,14 @@ Bug2470TestCase::DoRun (void)
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("HtMcs7"));
 
-
   WifiMacHelper mac;
   NetDeviceContainer apDevice;
-  mac.SetType ("ns3::ApWifiMac");
+  phy.Set ("ReceiveErrorModel", apErrorModel);
+  mac.SetType ("ns3::ApWifiMac", "EnableBeaconJitter", BooleanValue (false));
   apDevice = wifi.Install (phy, mac, wifiApNode);
 
   NetDeviceContainer staDevice;
-  // Create ListErrorModel to corrupt ADDBA req packet
-  Ptr<ListErrorModel> pem = CreateObject<ListErrorModel> ();
-  // ADDBA req is uid 15
-  std::list<uint32_t> sampleList;
-  sampleList.push_back (15);
-  pem->SetList (sampleList);
-  phy.Set ("ReceiveErrorModel", PointerValue (pem));
+  phy.Set ("ReceiveErrorModel", staErrorModel);
   mac.SetType ("ns3::StaWifiMac");
   staDevice = wifi.Install (phy, mac, wifiStaNode);
 
@@ -145,8 +154,7 @@ Bug2470TestCase::DoRun (void)
   mobility.Install (wifiApNode);
   mobility.Install (wifiStaNode);
 
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyTxBegin", MakeCallback (&Bug2470TestCase::TxCallback, this));
-  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxBegin", MakeCallback (&Bug2470TestCase::RxCallback, this));
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacRx", MakeCallback (&Bug2470TestCase::RxCallback, this));
   Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxDrop", MakeCallback (&Bug2470TestCase::RxDropCallback, this));
 
   Simulator::Schedule (Seconds (0.5), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
@@ -154,9 +162,74 @@ Bug2470TestCase::DoRun (void)
 
   Simulator::Stop (Seconds (1.0));
   Simulator::Run ();
-
   Simulator::Destroy ();
-  NS_LOG_DEBUG ("num of received packet " << +m_receivedDataCount);
+}
+
+void
+Bug2470TestCase::DoRun (void)
+{
+  // Create ReceiveListErrorModel to corrupt ADDBA req packet. We use ReceiveListErrorModel
+  // instead of ListErrorModel since packet UID is incremented between simulations. But
+  // problem may occur because of random stream, therefore we suppress usage of rng as
+  // much as possible (i.e., removing beacon jitter).
+  Ptr<ReceiveListErrorModel> staPem = CreateObject<ReceiveListErrorModel> ();
+  // Block retransmission of ADDBA request 6 times (< SSRC)
+  std::list<uint32_t> blackList;
+  blackList.push_back (8);
+  blackList.push_back (9);
+  blackList.push_back (10);
+  blackList.push_back (11);
+  blackList.push_back (12);
+  blackList.push_back (13);
+  staPem->SetList (blackList);
+
+  {
+    RunSubtest (PointerValue (), PointerValue (staPem));
+    NS_LOG_DEBUG ("num of received packet " << +m_receivedDataCount);
+    NS_TEST_ASSERT_MSG_EQ (m_receivedDataCount, 10, "Packet reception unexpectedly stopped after failed BA agreement on subtest 1");
+  }
+
+  m_receivedDataCount = 0;
+  Ptr<ReceiveListErrorModel> staPem2 = CreateObject<ReceiveListErrorModel> ();
+  // Block retransmission of ADDBA request 7 times
+  blackList.push_back (15);
+  staPem2->SetList (blackList);
+
+  {
+    RunSubtest (PointerValue (), PointerValue (staPem2));
+    NS_LOG_DEBUG ("num of received packet " << +m_receivedDataCount);
+    NS_TEST_ASSERT_MSG_EQ (m_receivedDataCount, 10, "Packet reception unexpectedly stopped after failed BA agreement on subtest 2");
+  }
+
+  m_receivedDataCount = 0;
+  Ptr<ReceiveListErrorModel> apPem = CreateObject<ReceiveListErrorModel> ();
+  blackList.clear ();
+  // Block retransmission of ADDBA response 6 times (< SSRC)
+  blackList.push_back (4);
+  blackList.push_back (5);
+  blackList.push_back (6);
+  blackList.push_back (7);
+  blackList.push_back (8);
+  blackList.push_back (9);
+  apPem->SetList (blackList);
+
+  {
+    RunSubtest (PointerValue (apPem), PointerValue ());
+    NS_LOG_DEBUG ("num of received packet " << +m_receivedDataCount);
+    NS_TEST_ASSERT_MSG_EQ (m_receivedDataCount, 10, "Packet reception unexpectedly stopped after failed BA agreement on subtest 3");
+  }
+
+  m_receivedDataCount = 0;
+  Ptr<ReceiveListErrorModel> apPem2 = CreateObject<ReceiveListErrorModel> ();
+  // Block retransmission of ADDBA response 7 times
+  blackList.push_back (10);
+  apPem2->SetList (blackList);
+
+  {
+    RunSubtest (PointerValue (apPem2), PointerValue ());
+    NS_LOG_DEBUG ("num of received packet " << +m_receivedDataCount);
+    NS_TEST_ASSERT_MSG_EQ (m_receivedDataCount, 10, "Packet reception unexpectedly stopped after failed BA agreement on subtest 4");
+  }
 }
 
 
