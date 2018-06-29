@@ -24,6 +24,7 @@
 #include "ns3/pointer.h"
 #include "ns3/mobility-model.h"
 #include "ns3/random-variable-stream.h"
+#include "ns3/error-model.h"
 #include "wifi-phy.h"
 #include "wifi-phy-tag.h"
 #include "ampdu-tag.h"
@@ -296,6 +297,14 @@ WifiPhy::GetTypeId (void)
                    PointerValue (),
                    MakePointerAccessor (&WifiPhy::m_frameCaptureModel),
                    MakePointerChecker <FrameCaptureModel> ())
+    .AddAttribute ("ReceiveErrorModel",
+                   "The optional receive error model used to force packet loss."
+                   "Note that this is additional to any Wi-Fi error rate model "
+                   "based on SNR, and is typically used to force specific packet "
+                   "losses or for testing purposes.",
+                   PointerValue (),
+                   MakePointerAccessor (&WifiPhy::m_receiveErrorModel),
+                   MakePointerChecker<ErrorModel> ())
     .AddTraceSource ("PhyTxBegin",
                      "Trace source indicating a packet "
                      "has begun transmitting over the channel medium",
@@ -385,6 +394,7 @@ WifiPhy::DoDispose (void)
   m_mobility = 0;
   m_state = 0;
   m_wifiRadioEnergyModel = 0;
+  m_receiveErrorModel = 0;
   m_deviceRateSet.clear ();
   m_deviceMcsSet.clear ();
 }
@@ -674,6 +684,13 @@ WifiPhy::SetErrorRateModel (const Ptr<ErrorRateModel> rate)
 {
   m_interference.SetErrorRateModel (rate);
   m_interference.SetNumberOfReceiveAntennas (GetNumberOfAntennas ());
+}
+
+void
+WifiPhy::SetReceiveErrorModel (const Ptr<ErrorModel> em)
+{
+  NS_LOG_FUNCTION (this << em);
+  m_receiveErrorModel = em;
 }
 
 void
@@ -2544,7 +2561,14 @@ WifiPhy::EndReceive (Ptr<Packet> packet, WifiPreamble preamble, MpduType mpdutyp
       NS_LOG_DEBUG ("mode=" << (event->GetPayloadMode ().GetDataRate (event->GetTxVector ())) <<
                     ", snr(dB)=" << RatioToDb (snrPer.snr) << ", per=" << snrPer.per << ", size=" << packet->GetSize ());
 
-      if (m_random->GetValue () > snrPer.per)
+      //
+      // There are two error checks: PER and receive error model check.
+      // PER check models is typical for Wi-Fi and is based on signal modulation;
+      // Receive error model is optional, if we have an error model and
+      // it indicates that the packet is corrupt, drop the packet.
+      //
+      if (m_random->GetValue () > snrPer.per &&
+          !(m_receiveErrorModel && m_receiveErrorModel->IsCorrupt (packet)))
         {
           NotifyRxEnd (packet);
           SignalNoiseDbm signalNoise;
