@@ -28,7 +28,30 @@ namespace ns3 {
 /**
  * \ingroup wifi
  * Maintains the state and information about transmitted MPDUs with ack policy block ack
- * for an originator station.
+ * for an originator station. The state diagram is as follows:
+ *
+   \verbatim
+                                       receive ADDBAResponse
+   send ADDBARequest ---------------   status code = success  ---------------
+   ----------------->|   PENDING    |------------------------>|  ESTABLISHED |-----
+                     ---------------                          ---------------      |
+                           |                                    /   ^    ^         |
+    receive ADDBAResponse  |                receive BlockAck   /    |    |         | receive BlockAck
+    status code = failure  |           retryPkts + queuePkts  /     |    |         | retryPkts + queuePkts
+                           v                     <           /      |    |         |           >=
+                    ---------------     blockAckThreshold   /       |    |         | blockAckThreshold
+                    | UNSUCCESSFUL |                       /        |    |         |
+                    ---------------                       v         |    ----------|
+                                             --------------         |
+                                             |  INACTIVE   |        |
+                                             --------------         |
+                         send a MPDU (Normal Ack)   |               |
+                         retryPkts + queuePkts      |               |
+                                   >=               |               |
+                          blockAckThreshold         |----------------
+   \endverbatim
+ *
+ * See also OriginatorBlockAckAgreement::State
  */
 class OriginatorBlockAckAgreement : public BlockAckAgreement
 {
@@ -45,25 +68,6 @@ public:
    */
   OriginatorBlockAckAgreement (Mac48Address recipient, uint8_t tid);
   ~OriginatorBlockAckAgreement ();
-  /*                                      receive ADDBAResponse
-   *  send ADDBARequest ---------------   status code = success  ---------------
-   *  ----------------->|   PENDING    |------------------------>|  ESTABLISHED |-----
-   *                    ---------------                          ---------------      |
-   *                          |                                    /   ^    ^         |
-   *   receive ADDBAResponse  |                receive BlockAck   /    |    |         | receive BlockAck
-   *   status code = failure  |           retryPkts + queuePkts  /     |    |         | retryPkts + queuePkts
-   *                          v                     <           /      |    |         |           >=
-   *                   ---------------     blockAckThreshold   /       |    |         | blockAckThreshold
-   *                   | UNSUCCESSFUL |                       /        |    |         |
-   *                   ---------------                       v         |    ----------|
-   *                                            --------------         |
-   *                                            |  INACTIVE   |        |
-   *                                            --------------         |
-   *                        send a MPDU (Normal Ack)   |               |
-   *                        retryPkts + queuePkts      |               |
-   *                                  >=               |               |
-   *                         blockAckThreshold         |----------------
-   */
   /**
   * Represents the state for this agreement.
   *
