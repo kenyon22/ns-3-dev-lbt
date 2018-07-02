@@ -147,12 +147,12 @@ public:
    * \param address recipient address of the peer station
    * \param tid traffic ID.
    *
-   * \return true if a block ack agreement exists, false otherwise.
+   * \return true if a block ack agreement is established, false otherwise.
    *
-   * Checks if a block ack agreement exists with station addressed by
+   * Checks if a block ack agreement is established with station addressed by
    * <i>recipient</i> for tid <i>tid</i>.
    */
-  bool GetBaAgreementExists (Mac48Address address, uint8_t tid) const;
+  bool GetBaAgreementEstablished (Mac48Address address, uint8_t tid) const;
   /**
    * \param recipient address of peer station involved in block ack mechanism.
    * \param tid Ttraffic ID of transmitted packet.
