@@ -106,9 +106,9 @@ QosTxop::DoDispose (void)
 }
 
 bool
-QosTxop::GetBaAgreementExists (Mac48Address address, uint8_t tid) const
+QosTxop::GetBaAgreementEstablished (Mac48Address address, uint8_t tid) const
 {
-  return m_baManager->ExistsAgreement (address, tid);
+  return m_baManager->ExistsAgreementInState (address, tid, OriginatorBlockAckAgreement::ESTABLISHED);
 }
 
 void
@@ -443,7 +443,7 @@ QosTxop::MissedCts (void)
           uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
           m_low->FlushAggregateQueue (tid);
 
-          if (GetBaAgreementExists (m_currentHdr.GetAddr1 (), tid))
+          if (GetBaAgreementEstablished (m_currentHdr.GetAddr1 (), tid))
             {
               NS_LOG_DEBUG ("Transmit Block Ack Request");
               CtrlBAckRequestHeader reqHdr;
@@ -572,7 +572,7 @@ QosTxop::MissedAck (void)
         {
           uint8_t tid = GetTid (m_currentPacket, m_currentHdr);
 
-          if (GetBaAgreementExists (m_currentHdr.GetAddr1 (), tid))
+          if (GetBaAgreementEstablished (m_currentHdr.GetAddr1 (), tid))
             {
               //send Block ACK Request in order to shift WinStart at the receiver
               NS_LOG_DEBUG ("Transmit Block Ack Request");
@@ -959,7 +959,7 @@ QosTxop::NeedFragmentation (void) const
       || GetAmpduExist (m_currentHdr.GetAddr1 ())
       || (m_stationManager->HasHtSupported ()
           && m_currentHdr.IsQosData ()
-          && GetBaAgreementExists (m_currentHdr.GetAddr1 (), GetTid (m_currentPacket, m_currentHdr))
+          && GetBaAgreementEstablished (m_currentHdr.GetAddr1 (), GetTid (m_currentPacket, m_currentHdr))
           && GetMpduAggregator ()->GetMaxAmpduSize () >= m_currentPacket->GetSize ()))
     {
       //MSDU is not fragmented when it is transmitted using an HT-immediate or
