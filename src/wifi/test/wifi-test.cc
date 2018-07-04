@@ -43,6 +43,7 @@
 #include "ns3/wifi-phy-tag.h"
 #include "ns3/yans-wifi-phy.h"
 #include "ns3/mgt-headers.h"
+#include "ns3/error-model.h"
 
 using namespace ns3;
 
@@ -1688,6 +1689,225 @@ StaWifiMacScanningTestCase::DoRun (void)
   }
 }
 
+//-----------------------------------------------------------------------------
+/**
+ * Make sure that the ADDBA handshake process is protected.
+ *
+ * The scenario considers an access point and a station. It utilizes
+ * ReceiveListErrorModel to drop by force ADDBA request on STA or ADDBA
+ * response on AP. The AP sends 5 packets of each 1000 bytes (thus generating
+ * BA agreement), 2 times during the test at 0.5s and 0.8s. We only drop the
+ * first ADDBA request/response of the first BA negotiation. Therefore, we
+ * expect that the packets still in queue after the failed BA agreement will be
+ * sent with normal MPDU, and packets queued after that should be sent with
+ * AMPDU. This test consider 2 subtest scenario:
+ *
+ *   1. ADDBA request packets are blocked on receive at STA, triggering
+ *      transmission failure at AP
+ *   2. ADDBA response packets are blocked on receive at AP, STA stops
+ *      retransmission of ADDBA response
+ *
+ * See \bugid{2470}
+ */
+
+class Bug2470TestCase : public TestCase
+{
+public:
+  Bug2470TestCase ();
+  virtual ~Bug2470TestCase ();
+  virtual void DoRun (void);
+
+private:
+  /**
+   * Callback when packet is received
+   * \param context node context
+   * \param p the received packet
+   * \param channelFreqMhz the channel frequency in MHz
+   * \param txVector the TX vector
+   * \param aMpdu the AMPDU info
+   * \param signalNoise the signal noise in dBm
+   */
+  void RxCallback (std::string context, Ptr<const Packet> p, uint16_t channelFreqMhz, WifiTxVector txVector, MpduInfo aMpdu, SignalNoiseDbm signalNoise);
+  /**
+   * Callback when packet is dropped
+   * \param context node context
+   * \param p the received packet
+   */
+  void RxDropCallback (std::string context, Ptr<const Packet> p);
+  /**
+   * Triggers the arrival of a burst of 1000 Byte-long packets in the source device
+   * \param numPackets number of packets in burst
+   * \param sourceDevice pointer to the source NetDevice
+   * \param destination address of the destination device
+   */
+  void SendPacketBurst (uint32_t numPackets, Ptr<NetDevice> sourceDevice, Address& destination) const;
+  /**
+   * Run subtest for this test suite
+   * \param apErrorModel ErrorModel used for AP
+   * \param staErrorModel ErrorModel used for STA
+   */
+  void RunSubtest (PointerValue apErrorModel, PointerValue staErrorModel);
+
+  uint8_t m_receivedNormalMpduCount; ///< Count received normal MPDU packets on STA
+  uint8_t m_receivedAmpduCount; ///< Count received AMPDU packets on STA
+  uint8_t m_droppedActionCount; ///< Count dropped ADDBA request/response
+};
+
+Bug2470TestCase::Bug2470TestCase ()
+  : TestCase ("Test case for Bug 2470")
+{
+}
+
+Bug2470TestCase::~Bug2470TestCase ()
+{
+}
+
+void
+Bug2470TestCase::RxCallback (std::string context, Ptr<const Packet> p, uint16_t channelFreqMhz, WifiTxVector txVector, MpduInfo aMpdu, SignalNoiseDbm signalNoise)
+{
+  Ptr<Packet> packet = p->Copy ();
+  if (aMpdu.type != MpduType::NORMAL_MPDU)
+    {
+      m_receivedAmpduCount++;
+    }
+  else
+    {
+      WifiMacHeader hdr;
+      packet->RemoveHeader (hdr);
+      if (hdr.IsData ())
+        {
+          m_receivedNormalMpduCount++;
+        }
+    }
+}
+
+void
+Bug2470TestCase::RxDropCallback (std::string context, Ptr<const Packet> p)
+{
+  Ptr<Packet> packet = p->Copy ();
+  WifiMacHeader hdr;
+  packet->RemoveHeader (hdr);
+  if (hdr.IsAction ())
+    {
+      m_droppedActionCount++;
+    }
+}
+
+void
+Bug2470TestCase::SendPacketBurst (uint32_t numPackets, Ptr<NetDevice> sourceDevice,
+                                  Address& destination) const
+{
+  for (uint32_t i = 0; i < numPackets; i++)
+    {
+      Ptr<Packet> pkt = Create<Packet> (1000);  // 1000 dummy bytes of data
+      sourceDevice->Send (pkt, destination, 0);
+    }
+}
+
+void
+Bug2470TestCase::RunSubtest (PointerValue apErrorModel, PointerValue staErrorModel)
+{
+  NodeContainer wifiApNode, wifiStaNode;
+  wifiApNode.Create (1);
+  wifiStaNode.Create (1);
+
+  YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
+  YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
+  phy.SetChannel (channel.Create ());
+
+  WifiHelper wifi;
+  wifi.SetStandard (WIFI_PHY_STANDARD_80211n_2_4GHZ);
+  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+                                "DataMode", StringValue ("HtMcs7"),
+                                "ControlMode", StringValue ("HtMcs7"),
+                                "MaxSsrc", UintegerValue (7)); // Set max retransmission just to be sure
+
+  WifiMacHelper mac;
+  NetDeviceContainer apDevice;
+  phy.Set ("PostReceptionErrorModel", apErrorModel);
+  mac.SetType ("ns3::ApWifiMac", "EnableBeaconJitter", BooleanValue (false));
+  apDevice = wifi.Install (phy, mac, wifiApNode);
+
+  NetDeviceContainer staDevice;
+  phy.Set ("PostReceptionErrorModel", staErrorModel);
+  mac.SetType ("ns3::StaWifiMac");
+  staDevice = wifi.Install (phy, mac, wifiStaNode);
+
+  MobilityHelper mobility;
+  Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
+  positionAlloc->Add (Vector (0.0, 0.0, 0.0));
+  positionAlloc->Add (Vector (1.0, 0.0, 0.0));
+  mobility.SetPositionAllocator (positionAlloc);
+
+  mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  mobility.Install (wifiApNode);
+  mobility.Install (wifiStaNode);
+
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/MonitorSnifferRx", MakeCallback (&Bug2470TestCase::RxCallback, this));
+  Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/$ns3::WifiPhy/PhyRxDrop", MakeCallback (&Bug2470TestCase::RxDropCallback, this));
+
+  Simulator::Schedule (Seconds (0.5), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
+  Simulator::Schedule (Seconds (0.8), &Bug2470TestCase::SendPacketBurst, this, 5, apDevice.Get (0), staDevice.Get (0)->GetAddress ());
+
+  Simulator::Stop (Seconds (1.0));
+  Simulator::Run ();
+  Simulator::Destroy ();
+}
+
+void
+Bug2470TestCase::DoRun (void)
+{
+  // Create ReceiveListErrorModel to corrupt ADDBA req packet. We use ReceiveListErrorModel
+  // instead of ListErrorModel since packet UID is incremented between simulations. But
+  // problem may occur because of random stream, therefore we suppress usage of RNG as
+  // much as possible (i.e., removing beacon jitter).
+  Ptr<ReceiveListErrorModel> staPem = CreateObject<ReceiveListErrorModel> ();
+  std::list<uint32_t> blackList;
+  // Block ADDBA request 7 times (== MaxSsrc)
+  blackList.push_back (8);
+  blackList.push_back (9);
+  blackList.push_back (10);
+  blackList.push_back (11);
+  blackList.push_back (12);
+  blackList.push_back (13);
+  blackList.push_back (15);
+  staPem->SetList (blackList);
+
+  {
+    RunSubtest (PointerValue (), PointerValue (staPem));
+    NS_TEST_ASSERT_MSG_EQ (m_droppedActionCount, 7, "ADDBA request packet is not dropped correctly");
+    // There are two sets of 5 packets to be transmitted. The first 5 packets should be sent by normal
+    // MPDU because of failed ADDBA handshake. For the second set, the first packet should be sent by
+    // normal MPDU, and the rest with AMPDU. In total we expect to receive 6 normal AMPDU packets and
+    // 4 AMPDU packets.
+    NS_TEST_ASSERT_MSG_EQ (m_receivedNormalMpduCount, 6, "Receiving incorrect number of normal MPDU packet on subtest 1");
+    NS_TEST_ASSERT_MSG_EQ (m_receivedAmpduCount, 4, "Receiving incorrect number of AMPDU packet on subtest 1");
+  }
+
+  m_receivedNormalMpduCount = 0;
+  m_receivedAmpduCount = 0;
+  m_droppedActionCount = 0;
+  Ptr<ReceiveListErrorModel> apPem = CreateObject<ReceiveListErrorModel> ();
+  blackList.clear ();
+  // Block ADDBA response 7 times (== MaxSsrc)
+  blackList.push_back (4);
+  blackList.push_back (5);
+  blackList.push_back (6);
+  blackList.push_back (7);
+  blackList.push_back (8);
+  blackList.push_back (9);
+  blackList.push_back (10);
+  apPem->SetList (blackList);
+
+  {
+    RunSubtest (PointerValue (apPem), PointerValue ());
+    NS_TEST_ASSERT_MSG_EQ (m_droppedActionCount, 7, "ADDBA response packet is not dropped correctly");
+    // Similar to subtest 1, we also expect to receive 6 normal AMPDU packets and 4 AMPDU packets.
+    NS_TEST_ASSERT_MSG_EQ (m_receivedNormalMpduCount, 6, "Receiving incorrect number of normal MPDU packet on subtest 2");
+    NS_TEST_ASSERT_MSG_EQ (m_receivedAmpduCount, 4, "Receiving incorrect number of AMPDU packet on subtest 2");
+  }
+}
+
 /**
  * \ingroup wifi-test
  * \ingroup tests
@@ -1713,6 +1933,7 @@ WifiTestSuite::WifiTestSuite ()
   AddTestCase (new Bug2483TestCase, TestCase::QUICK); //Bug 2483
   AddTestCase (new Bug2831TestCase, TestCase::QUICK); //Bug 2831
   AddTestCase (new StaWifiMacScanningTestCase, TestCase::QUICK); //Bug 2399
+  AddTestCase (new Bug2470TestCase, TestCase::QUICK); //Bug 2470
 }
 
 static WifiTestSuite g_wifiTestSuite; ///< the test suite
