@@ -349,6 +349,28 @@ public:
    * \param enableAmpdu flag whether A-MPDU is used or not.
    */
   void SetAmpduExist (Mac48Address dest, bool enableAmpdu);
+  /**
+   * Set the timeout for ADDBA reply.
+   *
+   * \param addBaResponseTimeout the timeout for fail BA agreement
+   */
+  void SetAddBaResponseTimeout (Time addBaResponseTimeout);
+  /**
+   *
+   * \returns the timeout for fail BA agreement
+   */
+  Time GetAddBaResponseTimeout (void) const;
+  /**
+   * Set the timeout for fail BA agreement.
+   *
+   * \param failAddBaTimeout the timeout for fail BA agreement
+   */
+  void SetFailAddBaTimeout (Time failAddBaTimeout);
+  /**
+   *
+   * \returns the timeout for fail BA agreement
+   */
+  Time GetFailAddBaTimeout (void) const;
 
   /**
    * Return the next sequence number for the given header.
@@ -533,6 +555,20 @@ private:
    * \returns the TXOP fragment offset
    */
   uint32_t GetTxopFragmentOffset (uint32_t fragmentNumber) const;
+  /**
+   * Callback when ADDBA response is not received after timeout.
+   *
+   * \param recipient MAC address of recipient
+   * \param tid traffic ID
+   */
+  void AddBaResponseTimeout (Mac48Address recipient, uint8_t tid);
+  /**
+   * Reset BA agreement after BA negotiation failed.
+   *
+   * \param recipient MAC address of recipient
+   * \param tid traffic ID
+   */
+  void ResetBa (Mac48Address recipient, uint8_t tid);
 
   void DoDispose (void);
   void DoInitialize (void);
@@ -551,6 +587,8 @@ private:
   Time m_startTxop;                                 //!< the start TXOP time
   bool m_isAccessRequestedForRts;                   //!< flag whether access is requested to transmit a RTS frame
   bool m_currentIsFragmented;                       //!< flag whether current packet is fragmented
+  Time m_addBaResponseTimeout;                      //!< timeout after a fail BA agreement
+  Time m_failAddBaTimeout;                          //!< timeout after a fail BA agreement
 
   TracedValue<uint32_t> m_backoffTrace;   //!< backoff trace value
   TracedValue<uint32_t> m_cwTrace;        //!< CW trace value

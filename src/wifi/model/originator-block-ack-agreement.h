@@ -31,24 +31,31 @@ namespace ns3 {
  * for an originator station. The state diagram is as follows:
  *
    \verbatim
-                                       receive ADDBAResponse
-   send ADDBARequest ---------------   status code = success  ---------------
-   ----------------->|   PENDING    |------------------------>|  ESTABLISHED |-----
-                     ---------------                          ---------------      |
-                           |                                    /   ^    ^         |
-    receive ADDBAResponse  |                receive BlockAck   /    |    |         | receive BlockAck
-    status code = failure  |           retryPkts + queuePkts  /     |    |         | retryPkts + queuePkts
-                           v                     <           /      |    |         |           >=
-                    ---------------     blockAckThreshold   /       |    |         | blockAckThreshold
-                    | UNSUCCESSFUL |                       /        |    |         |
-                    ---------------                       v         |    ----------|
-                                             --------------         |
-                                             |  INACTIVE   |        |
-                                             --------------         |
-                         send a MPDU (Normal Ack)   |               |
-                         retryPkts + queuePkts      |               |
-                                   >=               |               |
-                          blockAckThreshold         |----------------
+                                   ----------------
+                                   | UNSUCCESSFUL |
+                                   ----------------
+                                          ^
+                   receive ADDBAResponse  |
+                   status code = failure  |
+                                          |
+                                          |           receive ADDBAResponse
+   -------------- send ADDBARequest ----------------  status code = success  ----------------
+   |   START    |------------------>|   PENDING    |------------------------>|  ESTABLISHED |-----
+   --------------                   ----------------                         ----------------     |
+         ^                                |                                    /   ^    ^         |
+         |              no ADDBAResponse  |                receive BlockAck   /    |    |         | receive BlockAck
+         |                                v           retryPkts + queuePkts  /     |    |         | retryPkts + queuePkts
+         |                          ----------------            <           /      |    |         |           >=
+         |--------------------------|   NO_REPLY   |   blockAckThreshold   /       |    |         | blockAckThreshold
+            Reset after timeout     ----------------                      /        |    |         |
+                                                                         v         |    ----------|
+                                                            ---------------        |
+                                                            |  INACTIVE   |        |
+                                                            ---------------        |
+                                        send a MPDU (Normal Ack)   |               |
+                                        retryPkts + queuePkts      |               |
+                                                  >=               |               |
+                                         blockAckThreshold         |----------------
    \endverbatim
  *
  * See also OriginatorBlockAckAgreement::State
@@ -86,6 +93,13 @@ public:
   *    m_blockAckThreshold (see ns3::BlockAckManager). In these conditions the agreement becomes
   *    INACTIVE until that the number of packets reaches the value of m_blockAckThreshold again.
   *
+  *  NO_REPLY
+  *    No reply after an ADDBA request. In this state the originator will send the rest of packets
+  *    in queue using normal MPDU.
+  *
+  *  RESET
+  *    A transitory state to mark the agreement for reinitialzation after failed ADDBA request.
+  *
   *  UNSUCCESSFUL (not used for now):
   *    The agreement's state becomes UNSUCCESSFUL if:
   *
@@ -104,6 +118,8 @@ public:
     PENDING,
     ESTABLISHED,
     INACTIVE,
+    NO_REPLY,
+    RESET,
     UNSUCCESSFUL
   };
   /**
@@ -133,6 +149,20 @@ public:
    *         false otherwise
    */
   bool IsInactive (void) const;
+  /**
+   * Check if the current state of this agreement is NO_REPLY.
+   *
+   * \return true if the current state of this agreement is NO_REPLY,
+   *         false otherwise
+   */
+  bool IsNoReply (void) const;
+  /**
+   * Check if the current state of this agreement is RESET.
+   *
+   * \return true if the current state of this agreement is RESET,
+   *         false otherwise
+   */
+  bool IsReset (void) const;
   /**
    * Check if the current state of this agreement is UNSUCCESSFUL.
    *
