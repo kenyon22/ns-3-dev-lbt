@@ -601,8 +601,6 @@ Bug730TestCase::DoRun (void)
 {
   m_received = 0;
 
-  Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("2304"));
-
   NodeContainer wifiStaNode;
   wifiStaNode.Create (1);
 
@@ -617,7 +615,8 @@ Bug730TestCase::DoRun (void)
   wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("DsssRate1Mbps"),
-                                "ControlMode", StringValue ("DsssRate1Mbps"));
+                                "ControlMode", StringValue ("DsssRate1Mbps"),
+                                "FragmentationThreshold", UintegerValue (2304));
 
   WifiMacHelper mac;
   Ssid ssid = Ssid ("ns-3-ssid");
@@ -1264,9 +1263,6 @@ Bug2483TestCase::SendPacketBurst (uint8_t numPackets, Ptr<NetDevice> sourceDevic
 void
 Bug2483TestCase::DoRun (void)
 {
-  Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("500")); // so as to force RTS/CTS for data frames
-  Config::SetDefault ("ns3::WifiPhy::CcaMode1Threshold", DoubleValue (-62.0));
-
   uint16_t channelWidth = 40; // at least 40 MHz expected here
 
   NodeContainer wifiStaNode;
@@ -1291,12 +1287,14 @@ Bug2483TestCase::DoRun (void)
   spectrumPhy.Set ("ChannelWidth", UintegerValue (channelWidth));
   spectrumPhy.Set ("TxPowerStart", DoubleValue (10));
   spectrumPhy.Set ("TxPowerEnd", DoubleValue (10));
+  spectrumPhy.Set ("CcaMode1Threshold", DoubleValue (-62.0));
 
   WifiHelper wifi;
   wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("VhtMcs8"),
-                                "ControlMode", StringValue ("VhtMcs8"));
+                                "ControlMode", StringValue ("VhtMcs8"),
+                                "RtsCtsThreshold", UintegerValue (500)); // so as to force RTS/CTS for data frames
 
   WifiMacHelper mac;
   mac.SetType ("ns3::StaWifiMac");
