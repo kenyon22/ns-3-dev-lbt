@@ -1242,7 +1242,7 @@ QosTxop::GotAddBaResponse (const MgtAddBaResponseHeader *respHdr, Mac48Address r
       else
         {
           NS_LOG_DEBUG ("discard ADDBA response" << recipient);
-          m_baManager->NotifyAgreementUnsuccessful (recipient, tid);
+          m_baManager->NotifyAgreementRejected (recipient, tid);
         }
     }
   RestartAccessIfNeeded ();

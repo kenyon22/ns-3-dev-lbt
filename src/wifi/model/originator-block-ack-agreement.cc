@@ -65,9 +65,9 @@ OriginatorBlockAckAgreement::IsInactive (void) const
 }
 
 bool
-OriginatorBlockAckAgreement::IsUnsuccessful (void) const
+OriginatorBlockAckAgreement::IsRejected (void) const
 {
-  return (m_state == UNSUCCESSFUL) ? true : false;
+  return (m_state == REJECTED) ? true : false;
 }
 
 void

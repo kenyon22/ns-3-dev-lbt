@@ -39,9 +39,9 @@ namespace ns3 {
     receive ADDBAResponse  |                receive BlockAck   /    |    |         | receive BlockAck
     status code = failure  |           retryPkts + queuePkts  /     |    |         | retryPkts + queuePkts
                            v                     <           /      |    |         |           >=
-                    ---------------     blockAckThreshold   /       |    |         | blockAckThreshold
-                    | UNSUCCESSFUL |                       /        |    |         |
-                    ---------------                       v         |    ----------|
+                     --------------     blockAckThreshold   /       |    |         | blockAckThreshold
+                     |  REJECTED  |                        /        |    |         |
+                     --------------                       v         |    ----------|
                                              --------------         |
                                              |  INACTIVE   |        |
                                              --------------         |
@@ -104,7 +104,7 @@ public:
     PENDING,
     ESTABLISHED,
     INACTIVE,
-    UNSUCCESSFUL
+    REJECTED
   };
   /**
    * Set the current state.
@@ -134,12 +134,12 @@ public:
    */
   bool IsInactive (void) const;
   /**
-   * Check if the current state of this agreement is UNSUCCESSFUL.
+   * Check if the current state of this agreement is REJECTED.
    *
-   * \return true if the current state of this agreement is UNSUCCESSFUL,
+   * \return true if the current state of this agreement is REJECTED,
    *         false otherwise
    */
-  bool IsUnsuccessful (void) const;
+  bool IsRejected (void) const;
   /**
    * Notifies a packet's transmission with ack policy Block Ack.
    *
